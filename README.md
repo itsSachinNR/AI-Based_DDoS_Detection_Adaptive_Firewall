@@ -24,6 +24,9 @@ ddos_project
 │
 ├── src
 │   └── packet_capture.py
+│   └── feature_extraction.py
+│   └── ddos_detector.py
+│
 │
 ├── docs
 │
