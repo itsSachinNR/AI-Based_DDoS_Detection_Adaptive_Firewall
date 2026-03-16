@@ -18,14 +18,21 @@ This project is a prototype cybersecurity system that detects Distributed Denial
 - Flask
 
 ## Project Structure
+
+```
 ddos_project
 │
 ├── src
-│ └── packet_capture.py
-├── data
+│   └── packet_capture.py
+│
 ├── docs
+│
+├── data
+│
 ├── README.md
-└── requirements.txt
+├── requirements.txt
+└── .gitignore
+```
 
 
 ## How It Works
