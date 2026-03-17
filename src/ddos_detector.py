@@ -1,6 +1,7 @@
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 from feature_extraction import start_feature_extraction
+from firewall_blocker import block_ip   # 🔥 NEW
 
 # Training dataset
 data = {
@@ -13,23 +14,44 @@ data = {
 
 df = pd.DataFrame(data)
 
+# Features for ML
 X = df.drop("label", axis=1)
 y = df["label"]
 
+# Train model
 model = RandomForestClassifier()
 model.fit(X, y)
 
-print("Model trained successfully")
+print("Model trained successfully\n")
 
 # Capture live features
 features = start_feature_extraction()
 
-
-sample = pd.DataFrame([features])
+# 🔥 Only pass ML features (not top_ip)
+sample = pd.DataFrame([{
+    "packet_rate": features["packet_rate"],
+    "syn_ratio": features["syn_ratio"],
+    "udp_ratio": features["udp_ratio"],
+    "unique_ips": features["unique_ips"]
+}])
 
 prediction = model.predict(sample)
 
+print("\n===== Traffic Classification =====")
+
 if prediction[0] == 1:
     print("⚠️ DDoS ATTACK DETECTED")
+
+    attacker_ip = features["top_ip"]
+    print(f"Attacker IP: {attacker_ip}")
+
+    # Prevent self-block
+    if attacker_ip != "10.0.2.15":
+        block_ip(attacker_ip)
+    else:
+        print("⚠️ Skipping block (local test IP)")
+
 else:
     print("Normal Traffic")
+
+print("=================================")
