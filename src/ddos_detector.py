@@ -1,9 +1,10 @@
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
-from feature_extraction import start_feature_extraction
-from firewall_blocker import block_ip   # 🔥 NEW
 
-# Training dataset
+# =========================
+# TRAIN MODEL (runs once)
+# =========================
+
 data = {
     "packet_rate": [10, 20, 30, 800, 900, 1200],
     "syn_ratio": [0.1, 0.2, 0.15, 0.85, 0.9, 0.95],
@@ -14,44 +15,44 @@ data = {
 
 df = pd.DataFrame(data)
 
-# Features for ML
 X = df.drop("label", axis=1)
 y = df["label"]
 
-# Train model
 model = RandomForestClassifier()
 model.fit(X, y)
 
-print("Model trained successfully\n")
 
-# Capture live features
-features = start_feature_extraction()
+# =========================
+# ML DETECTION FUNCTION 🔥
+# =========================
 
-# 🔥 Only pass ML features (not top_ip)
-sample = pd.DataFrame([{
-    "packet_rate": features["packet_rate"],
-    "syn_ratio": features["syn_ratio"],
-    "udp_ratio": features["udp_ratio"],
-    "unique_ips": features["unique_ips"]
-}])
+def detect_ddos(features):
+    """
+    Input: features dictionary
+    Output: prediction + confidence
+    """
 
-prediction = model.predict(sample)
+    sample = pd.DataFrame([{
+        "packet_rate": features["packet_rate"],
+        "syn_ratio": features["syn_ratio"],
+        "udp_ratio": features["udp_ratio"],
+        "unique_ips": features["unique_ips"]
+    }])
 
-print("\n===== Traffic Classification =====")
+    prediction = model.predict(sample)[0]
+    probabilities = model.predict_proba(sample)[0]
 
-if prediction[0] == 1:
-    print("⚠️ DDoS ATTACK DETECTED")
+    confidence = round(max(probabilities) * 100, 2)
 
-    attacker_ip = features["top_ip"]
-    print(f"Attacker IP: {attacker_ip}")
+    return {
+        "prediction": int(prediction),
+        "confidence": confidence
+    }
 
-    # Prevent self-block
-    if attacker_ip != "10.0.2.15":
-        block_ip(attacker_ip)
-    else:
-        print("⚠️ Skipping block (local test IP)")
 
-else:
-    print("Normal Traffic")
+# =========================
+# OPTIONAL TEST (manual run)
+# =========================
 
-print("=================================")
+if __name__ == "__main__":
+    print("This file is now a reusable ML module.")

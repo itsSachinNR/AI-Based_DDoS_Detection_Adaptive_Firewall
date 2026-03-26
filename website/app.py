@@ -1,16 +1,21 @@
+import sys
+import os
 
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from flask import Flask, jsonify, render_template, request
 from collections import defaultdict, deque
 import time
+from src.ddos_detector import detect_ddos
+from src.firewall_blocker import block_ip
 
 app = Flask(__name__)
 
 WINDOW_SECONDS = 10
-ATTACK_THRESHOLD = 20
 
 ip_windows = defaultdict(deque)
 recent_requests = deque(maxlen=40)
 alerts = deque(maxlen=20)
+attack_logs=deque(maxlen=20)
 active_alerts = set()
 
 
@@ -31,13 +36,63 @@ def build_snapshot():
     active = {ip: len(q) for ip, q in ip_windows.items() if q}
     sorted_active = sorted(active.items(), key=lambda item: item[1], reverse=True)
 
-    suspicious = [(ip, count) for ip, count in sorted_active if count >= ATTACK_THRESHOLD]
     top_ip, top_count = (sorted_active[0] if sorted_active else ("-", 0))
 
+    # =========================
+    # 🔥 ML FEATURE CREATION
+    # =========================
+    packet_rate = sum(active.values()) / WINDOW_SECONDS if active else 0
+
+    features = {
+        "packet_rate": packet_rate,
+        "syn_ratio": 0,
+        "udp_ratio": 0,
+        "unique_ips": len(active)
+    }
+
+    # =========================
+    # 🔥 ML DETECTION
+    # =========================
+    result = detect_ddos(features)
+
+    if result["prediction"] == 1:
+        status = "DDoS Detected"
+        status_type = "danger"
+
+        # 🔥 LOGGING
+        log_entry = {
+            "time": time.strftime("%H:%M:%S"),
+            "ip": top_ip,
+            "confidence": result["confidence"],
+            "packet_rate": round(packet_rate, 2),
+            "action": "Blocked" if top_ip not in ["127.0.0.1", "localhost"] else "Detected"
+        }
+
+        # prevent duplicate logs
+        if not attack_logs or attack_logs[0]["ip"] != top_ip:
+            attack_logs.appendleft(log_entry)
+
+        # 🔥 FIREWALL
+        if top_ip not in ["127.0.0.1", "localhost"]:
+            try:
+                block_ip(top_ip)
+            except Exception as e:
+                print(f"Firewall error: {e}")
+
+    else:
+        status = "Normal Traffic"
+        status_type = "normal"
+
+    confidence = result["confidence"]
+
+    # UI data
+    suspicious = [(ip, count) for ip, count in sorted_active if count > 0]
+
     return {
-        "status": "DDoS Detected" if suspicious else "Normal Traffic",
-        "status_type": "danger" if suspicious else "normal",
-        "confidence": min(100, int((top_count / ATTACK_THRESHOLD) * 100)) if top_count else 0,
+        "attack_logs": list(attack_logs),
+        "status": status,
+        "status_type": status_type,
+        "confidence": confidence,
         "total_requests": sum(active.values()),
         "unique_ips": len(active),
         "top_ip": top_ip,
@@ -49,8 +104,6 @@ def build_snapshot():
         "alerts": list(alerts),
         "timestamp": time.strftime("%H:%M:%S"),
     }
-
-
 @app.before_request
 def track_request():
     if request.path.startswith("/static") or request.path.startswith("/api") or request.path == "/favicon.ico":
@@ -68,9 +121,10 @@ def track_request():
         "path": request.path
     })
 
+    # 🔥 Keep alerts logic (unchanged)
     current_count = len(ip_windows[ip])
 
-    if current_count >= ATTACK_THRESHOLD and ip not in active_alerts:
+    if current_count > 10 and ip not in active_alerts:
         active_alerts.add(ip)
         alerts.appendleft({
             "time": time.strftime("%H:%M:%S"),
@@ -79,7 +133,7 @@ def track_request():
             "count": current_count
         })
 
-    if current_count < ATTACK_THRESHOLD and ip in active_alerts:
+    if current_count <= 10 and ip in active_alerts:
         active_alerts.remove(ip)
 
 
