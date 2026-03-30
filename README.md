@@ -1,92 +1,210 @@
-# 🚀 AI-Based DDoS Detection & Adaptive Firewall System
+# 🛡️ AI-Based DDoS Detection & Adaptive Firewall System
 
-This project is a real-time cybersecurity system that detects Distributed Denial of Service (DDoS) attacks using network traffic analysis and machine learning.
+## 🚀 Overview
 
----
+This project is a **real-time AI-powered cybersecurity system** designed to detect and mitigate Distributed Denial of Service (DDoS) attacks.
 
-## 🔥 Features Implemented
-
-- 📡 Real-time packet capture using Scapy
-- 📊 Feature extraction (packet rate, SYN ratio, UDP ratio)
-- 🤖 Machine Learning-based DDoS detection (RandomForest)
-- 🕵️ Attacker IP identification (most active source)
-- 🔐 Basic adaptive firewall using iptables (auto-blocking capability)
+It integrates **network traffic monitoring, machine learning-based anomaly detection, automated firewall response, and a live visualization dashboard** into a unified system.
 
 ---
 
-## 🧠 How It Works
+## 🎯 Problem Statement
+
+Traditional DDoS detection systems rely on **static thresholds and delayed analysis**, making them ineffective against modern, dynamic, and automated attacks.
+
+There is a need for:
+- ⚡ Real-time detection  
+- 🧠 Intelligent anomaly recognition  
+- 🔥 Automated response mechanisms  
+
+---
+
+## 💡 Proposed Solution
+
+Our system provides an **end-to-end pipeline** that:
+
+- Captures real-time traffic (network + web)
+- Extracts behavioral traffic features
+- Detects anomalies using Machine Learning
+- Identifies attacker IPs
+- Automatically blocks malicious traffic using firewall rules
+- Visualizes all activity through a live dashboard
+
+---
+
+## 🏗️ System Architecture
 ```
-Network Traffic
-↓
-Packet Capture
-↓
-Feature Extraction
-↓
-Machine Learning Model
-↓
-Attack Detection
-↓
-Attacker Identification
-↓
-Firewall Blocking (iptables)
+Network / Web Traffic
+        ↓
+Packet Capture Module (Scapy / Flask)
+        ↓
+Feature Extraction Engine
+        ↓
+Machine Learning Detection Model (Random Forest)
+        ↓
+Threat Classification Engine
+        ↓
+Adaptive Firewall (iptables)
+        ↓
+Real-Time Monitoring Dashboard
 ```
 
 
 ---
 
-## 🛠️ Technologies Used
+## ⚙️ Key Features
 
+### 🔍 Real-Time Traffic Monitoring
+- Captures live network packets and HTTP requests
+- Tracks request rate, IP distribution, and traffic patterns
+
+### 🧠 AI-Based DDoS Detection
+- Uses **Random Forest Classifier**
+- Detects anomalies based on traffic behavior
+- Provides **confidence score** for predictions
+
+### 🔥 Adaptive Firewall Response
+- Automatically blocks attacker IPs using `iptables`
+- Prevents further malicious requests in real-time
+
+### 📊 Interactive Dashboard
+- Live traffic visualization (Chart.js graphs)
+- Real-time attack status (Normal / DDoS)
+- Top attacker identification
+- Confidence-based alerts
+
+### 📜 Attack Logging System
+- Logs attack events with:
+  - Timestamp
+  - Attacker IP
+  - Packet rate
+  - Confidence score
+  - Action taken (Blocked / Detected)
+
+---
+
+## 🛠️ Tech Stack
+
+### Backend
 - Python
-- Scapy
-- Pandas
-- Scikit-learn
-- Linux (iptables)
+- Flask
+
+### Machine Learning
+- Scikit-learn (Random Forest)
+
+### Networking
+- Scapy (packet capture & analysis)
+
+### Frontend
+- HTML, CSS, JavaScript
+- Chart.js (real-time visualization)
+
+### Security
+- Linux iptables (firewall automation)
 
 ---
 
 ## 📂 Project Structure
 ```
-ddos_project
+ddos_project/
 │
-├── src
-│ ├── packet_capture.py
-│ ├── feature_extraction.py
-│ ├── ddos_detector.py
-│ ├── firewall_blocker.py
+├── src/
+│ ├── packet_capture.py # Packet capture module
+│ ├── feature_extraction.py # Feature engineering
+│ ├── ddos_detector.py # ML detection engine
+│ ├── firewall_blocker.py # Firewall automation
 │
-├── docs
-├── data
+├── website/
+│ ├── app.py # Flask backend
+│ ├── templates/ # HTML dashboard
+│ └── static/ # CSS & assets
 │
+├── data/
+├── docs/
 ├── README.md
 ├── requirements.txt
-└── .gitignore
+└── venv/
 ```
+
 
 ---
 
-## ⚙️ How to Run
+## ⚡ How It Works
+
+1. Traffic is captured from network interfaces or web requests  
+2. Key features are extracted:
+   - Packet rate
+   - SYN ratio
+   - UDP ratio
+   - Unique IP count  
+3. ML model classifies traffic:
+   - Normal Traffic  
+   - DDoS Attack  
+4. If attack detected:
+   - Attacker IP is identified  
+   - Firewall blocks the IP  
+5. Dashboard updates in real-time  
+
+---
+
+## 🧪 Running the Project
+
+### 1️⃣ Activate Virtual Environment
 
 ```bash
 cd ddos_project
 source venv/bin/activate
-sudo python src/ddos_detector.py
 ```
-```
-===== Extracted Features =====
-packet_rate: 3800+
-syn_ratio: 0.97
-unique_ips: 2
-top_ip: 10.0.2.15
-==============================
 
-⚠ DDoS ATTACK DETECTED
-Attacker IP: 10.0.2.15
+### 2️⃣ Install Dependencies
+```bash
+pip install -r requirements.txt
+```
+
+### 3️⃣ Run Website Dashboard
+```bash
+python website/app.py
+```
+
+### 4️⃣ Open Dashboard
+```bash
+http://127.0.0.1:5000/dashboard
 ```
 
 ---
 
- ⚠️ Disclaimer
+### 📊 Demo Highlights
+- 🟢 Normal traffic monitoring
+- 🔴 Real-time DDoS detection
+- 📈 Live packet rate graph
+- 🚨 Attack logs with timestamps
+- 🔥 Automatic attacker IP blocking
 
-This project is for educational purposes only. Do not use it on networks without permission.
+---
 
-👨‍💻 Author : Sachin NR
+### 🔮 Future Enhancements
+- Deep Learning models (LSTM / Autoencoders)
+- Distributed DDoS detection system
+- Cloud deployment (AWS / Azure)
+- Adaptive threshold learning
+- Integration with SIEM tools
+
+---
+  
+### 🧠 Key Innovation
+
+Combines AI-based detection, real-time monitoring, and automated defense into a single intelligent cybersecurity system.
+
+---
+
+### ⚠️ Disclaimer
+
+This project is intended for educational and research purposes only.
+Do not deploy or test on networks without proper authorization.
+
+---
+
+### 👨‍💻 Author
+
+Sachin NR
+
