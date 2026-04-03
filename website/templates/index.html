@@ -3,70 +3,143 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AI-Based DDoS Website Monitor</title>
+  <title>AI-Based DDoS Detection & Adaptive Firewall</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
-<body>
+<body class="home-page">
   <div class="bg-glow"></div>
 
   <div class="shell">
     <header class="topbar">
-      <div>
-        <div class="eyebrow">AI-Based DDoS Detection & Adaptive Firewall</div>
-        <h1>Website Monitoring Portal</h1>
-        <p>Live request monitoring for a demo website with attack detection and response visibility.</p>
+      <div class="brand">
+        <div class="brand-mark">🛡</div>
+        <div>
+          <div class="brand-title">AI-Based DDoS Detection</div>
+          <div class="brand-sub">Local network demo • packet capture • adaptive firewall</div>
+        </div>
       </div>
 
-      <nav class="nav">
-        <a class="{{ 'active' if active_page == 'home' else '' }}" href="/">Home</a>
-        <a class="{{ 'active' if active_page == 'dashboard' else '' }}" href="/dashboard">Dashboard</a>
-      </nav>
+      <div class="top-actions">
+        <div class="pill blue">LOCAL DEMO</div>
+      </div>
     </header>
 
     <section class="hero glass">
-      <div>
-        <h2>Monitor real website traffic in real time.</h2>
+      <div class="hero-copy">
+        <div class="eyebrow">Cybersecurity + AI</div>
+        <h1>Detect attacks in real time and respond automatically.</h1>
         <p>
-          This site tracks request spikes, identifies suspicious source IPs, and gives a clean
-          view of traffic behavior for your SIH demo.
+          This project captures traffic, extracts behavioral features, classifies attacks with
+          machine learning, and blocks malicious IPs through an adaptive firewall.
         </p>
+
         <div class="hero-actions">
-          <a class="btn primary" href="/dashboard">Open Live Dashboard</a>
+          <a class="button" href="#features">Explore Features</a>
+          <a class="button secondary" href="#workflow">See Workflow</a>
+        </div>
+
+        <div class="pill-row">
+          <span class="pill green">Packet Capture</span>
+          <span class="pill cyan">ML Detection</span>
+          <span class="pill red">Auto Block</span>
         </div>
       </div>
 
-      <div class="hero-card">
-        <div class="hero-item">
-          <span>Layer</span>
-          <strong>HTTP / App-level</strong>
+      <div class="hero-panel">
+        <div class="hero-panel-card">
+          <div class="hero-panel-title">System Focus</div>
+          <div class="hero-panel-value">Traffic Monitoring</div>
         </div>
-        <div class="hero-item">
-          <span>Focus</span>
-          <strong>Request spikes</strong>
+        <div class="hero-panel-card">
+          <div class="hero-panel-title">Detection Layer</div>
+          <div class="hero-panel-value">Random Forest</div>
         </div>
-        <div class="hero-item">
-          <span>Output</span>
-          <strong>Status + Alerts</strong>
+        <div class="hero-panel-card">
+          <div class="hero-panel-title">Response Layer</div>
+          <div class="hero-panel-value">iptables Firewall</div>
         </div>
       </div>
     </section>
 
-    <section class="cards">
-      <div class="card glass">
-        <h3>Live Monitoring</h3>
-        <p>Tracks requests per IP inside a rolling time window.</p>
+    <section id="features" class="feature-grid">
+      <article class="feature-card glass">
+        <div class="feature-num">01</div>
+        <h3>Live Packet Capture</h3>
+        <p>Scapy captures network traffic from the local interface for analysis.</p>
+      </article>
+
+      <article class="feature-card glass">
+        <div class="feature-num">02</div>
+        <h3>Feature Extraction</h3>
+        <p>Packet rate, SYN ratio, UDP ratio, unique IPs, and top source IP.</p>
+      </article>
+
+      <article class="feature-card glass">
+        <div class="feature-num">03</div>
+        <h3>AI Detection</h3>
+        <p>Random Forest classifies traffic as normal or attack and returns confidence.</p>
+      </article>
+
+      <article class="feature-card glass">
+        <div class="feature-num">04</div>
+        <h3>Adaptive Firewall</h3>
+        <p>Suspicious IPs can be blocked automatically and unblocked after a short timer.</p>
+      </article>
+    </section>
+
+    <section id="workflow" class="workflow glass">
+      <div class="workflow-head">
+        <div class="eyebrow">Workflow</div>
+        <h2>How the system works</h2>
       </div>
-      <div class="card glass">
-        <h3>Attack Detection</h3>
-        <p>Flags unusually high request rates as suspicious activity.</p>
+
+      <div class="workflow-steps">
+        <div class="workflow-step">
+          <span class="step-no">1</span>
+          <div class="step-text">Network Traffic</div>
+        </div>
+        <div class="workflow-arrow">→</div>
+        <div class="workflow-step">
+          <span class="step-no">2</span>
+          <div class="step-text">Packet Capture</div>
+        </div>
+        <div class="workflow-arrow">→</div>
+        <div class="workflow-step">
+          <span class="step-no">3</span>
+          <div class="step-text">Feature Extraction</div>
+        </div>
+        <div class="workflow-arrow">→</div>
+        <div class="workflow-step">
+          <span class="step-no">4</span>
+          <div class="step-text">ML Detection</div>
+        </div>
+        <div class="workflow-arrow">→</div>
+        <div class="workflow-step">
+          <span class="step-no">5</span>
+          <div class="step-text">Firewall Response</div>
+        </div>
       </div>
-      <div class="card glass">
-        <h3>Adaptive Response</h3>
-        <p>Creates a clear path for future firewall integration.</p>
+
+      <div class="workflow-note">
+        Built for local-network testing, live monitoring, and a clean hackathon demo.
       </div>
-      <div class="card glass">
-        <h3>Judge-Friendly Demo</h3>
-        <p>Simple website + visible dashboard = strong presentation flow.</p>
+    </section>
+
+    <section class="info-grid">
+      <div class="info-card glass">
+        <h3>Why it matters</h3>
+        <p>
+          Static defenses struggle with fast-changing floods. This system adapts using observed
+          traffic behavior instead of only fixed rules.
+        </p>
+      </div>
+
+      <div class="info-card glass">
+        <h3>Demo friendly</h3>
+        <p>
+          Use one machine as the host and another as the traffic source to show real-time detection
+          and response in a local lab.
+        </p>
       </div>
     </section>
   </div>
