@@ -3,261 +3,457 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>DDoS Monitoring Dashboard</title>
+  <title>Security Command Dashboard</title>
 
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 
-  <!-- Chart.js + Annotation Plugin -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@1.4.0"></script>
 </head>
 
-<body>
+<body class="dashboard-page">
   <div class="bg-glow"></div>
 
   <div class="shell">
-
-    <!-- HEADER -->
     <header class="topbar">
-      <div>
-        <div class="eyebrow">AI-Based DDoS Detection & Adaptive Firewall</div>
-        <h1>Security Command Dashboard</h1>
+      <div class="brand">
+        <div class="brand-mark">🛡</div>
+        <div>
+          <div class="brand-title">Security Command Dashboard</div>
+          <div class="brand-sub">AI-Based DDoS Detection & Adaptive Firewall</div>
+        </div>
       </div>
 
-      <nav class="nav">
-        <a class="{{ 'active' if active_page == 'home' else '' }}" href="/">Home</a>
-        <a class="{{ 'active' if active_page == 'dashboard' else '' }}" href="/dashboard">Dashboard</a>
-      </nav>
+      <div class="top-actions">
+        <nav class="nav">
+          <a class="{{ 'active' if active_page == 'home' else '' }}" href="/">Home</a>
+          <a class="{{ 'active' if active_page == 'dashboard' else '' }}" href="/dashboard">Dashboard</a>
+        </nav>
+
+        <div class="live-indicator">
+          <span class="live-dot"></span>
+          LIVE
+        </div>
+
+        <button class="icon-button" id="refreshBtn" title="Refresh dashboard">↻</button>
+      </div>
     </header>
 
-    <!-- STATUS -->
-    <section class="status-row">
-      <div class="status-card glass">
-        <div class="status-label">System Status</div>
-        <div id="statusBadge" class="badge {{ initial.status_type }}">
-          {{ initial.status }}
+    <div class="hero-action-row">
+      <div class="hint-pill">Local demo • live monitoring • auto firewall</div>
+      <button class="button danger small-btn" id="simulateBtn">Simulate Attack</button>
+    </div>
+
+    <section class="status-banner glass" id="statusBanner">
+      <div class="status-main">
+        <div class="status-icon" id="statusIcon">🛡</div>
+        <div>
+          <div class="status-badge {{ initial.status_type }}" id="statusBadge">{{ initial.status }}</div>
+          <div class="confidence-line">
+            <span id="confidence">{{ initial.confidence }}</span>% confidence
+          </div>
         </div>
-        <div class="mini">Confidence: <span id="confidence">{{ initial.confidence }}</span>%</div>
       </div>
 
+      <div class="status-progress">
+        <div class="progress-track">
+          <div
+            class="progress-fill {{ initial.status_type }}"
+            id="confidenceBar"
+            style="width: {{ initial.confidence }}%;"
+          ></div>
+        </div>
+        <div class="progress-labels">
+          <span>0%</span>
+          <span>100%</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="metrics-grid">
       <div class="metric-card glass">
-        <div class="metric-title">Total Requests</div>
+        <div class="metric-head">
+          <span class="metric-label">Total Requests</span>
+          <span class="metric-icon cyan">◫</span>
+        </div>
         <div id="totalRequests" class="metric-value">{{ initial.total_requests }}</div>
       </div>
 
       <div class="metric-card glass">
-        <div class="metric-title">Unique IPs</div>
+        <div class="metric-head">
+          <span class="metric-label">Unique IPs</span>
+          <span class="metric-icon green">⌘</span>
+        </div>
         <div id="uniqueIps" class="metric-value">{{ initial.unique_ips }}</div>
       </div>
 
       <div class="metric-card glass">
-        <div class="metric-title">Top IP Count</div>
+        <div class="metric-head">
+          <span class="metric-label">Top IP Count</span>
+          <span class="metric-icon yellow">⦿</span>
+        </div>
         <div id="topIpCount" class="metric-value">{{ initial.top_ip_count }}</div>
+      </div>
+
+      <div class="metric-card glass">
+        <div class="metric-head">
+          <span class="metric-label">Last Update</span>
+          <span class="metric-icon red">↻</span>
+        </div>
+        <div id="lastUpdated" class="metric-value">{{ initial.timestamp }}</div>
       </div>
     </section>
 
-    <!-- MAIN GRID -->
-    <section class="grid">
-
-      <!-- TOP IP GRAPH -->
-      <div class="panel glass">
+    <section class="dashboard-grid">
+      <div class="panel glass chart-card chart-card-wide">
         <div class="panel-head">
-          <h2>Top Active IPs</h2>
+          <div>
+            <h2>Top Active IPs</h2>
+            <span>Highest request sources inside the current window</span>
+          </div>
+          <span class="tag warning">Ranked</span>
         </div>
         <canvas id="ipChart"></canvas>
       </div>
 
-      <!-- SIDE -->
       <div class="side-stack">
-
-        <!-- ATTACKER -->
-        <div class="panel glass">
+        <div class="panel glass snapshot-card">
           <div class="panel-head">
-            <h2>Attacker Snapshot</h2>
+            <div>
+              <h2>Attacker Snapshot</h2>
+              <span>Most active source in current traffic</span>
+            </div>
+            <span class="tag danger">Live</span>
           </div>
 
-          <div class="info-box">
-            <div class="info-row">
-              <span>Top IP</span>
-              <strong id="topIp">{{ initial.top_ip }}</strong>
+          <div class="snapshot-body">
+            <div class="snapshot-ip" id="topIp">{{ initial.top_ip }}</div>
+            <div class="snapshot-meta">
+              <div class="snapshot-row">
+                <span>Requests</span>
+                <strong id="topIpCountText">{{ initial.top_ip_count }}</strong>
+              </div>
+              <div class="snapshot-row">
+                <span>Confidence</span>
+                <strong><span id="snapshotConfidence">{{ initial.confidence }}</span>%</strong>
+              </div>
             </div>
-            <div class="info-row">
-              <span>Requests</span>
-              <strong id="topIpCountText">{{ initial.top_ip_count }}</strong>
+
+            <div class="snapshot-bar">
+              <div id="topIpBar" class="snapshot-bar-fill" style="width: {{ initial.confidence }}%;"></div>
             </div>
           </div>
         </div>
 
-        <!-- TRAFFIC GRAPH -->
-        <div class="panel glass">
+        <div class="panel glass chart-card">
           <div class="panel-head">
-            <h2>Traffic Rate</h2>
+            <div>
+              <h2>Traffic Rate</h2>
+              <span>Packet/request rate over time</span>
+            </div>
+            <span class="tag success">Auto refresh</span>
           </div>
           <canvas id="trafficChart"></canvas>
         </div>
 
-        <!-- ALERTS -->
-        <div class="panel glass">
+        <div class="panel glass alerts-card">
           <div class="panel-head">
-            <h2>Alerts</h2>
+            <div>
+              <h2>Alerts</h2>
+              <span>Recent security notifications</span>
+            </div>
+            <span class="tag warning">Events</span>
           </div>
 
-          <div id="alertsList" class="list"></div>
+          <div id="alertsList" class="alert-list"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="bottom-grid">
+      <div class="panel glass">
+        <div class="panel-head">
+          <div>
+            <h2>Attack Logs</h2>
+            <span>Detection and firewall actions</span>
+          </div>
+          <span class="tag danger">History</span>
         </div>
 
+        <div id="attackLogs" class="log-list"></div>
+      </div>
+
+      <div class="panel glass">
+        <div class="panel-head">
+          <div>
+            <h2>Recent Requests</h2>
+            <span>App-layer traffic and response status</span>
+          </div>
+          <span class="tag neutral">Table</span>
+        </div>
+
+        <div class="request-table-head">
+          <span>Time</span>
+          <span>IP</span>
+          <span>Method</span>
+          <span>Path</span>
+          <span>Status</span>
+          <span>Flag</span>
+        </div>
+        <div id="requestsTable" class="request-table"></div>
       </div>
     </section>
-
-    <!-- ATTACK LOGS -->
-    <section class="panel glass">
-      <div class="panel-head">
-        <h2>Attack Logs</h2>
-      </div>
-      <div id="attackLogs" class="list"></div>
-    </section>
-
-    <!-- REQUESTS -->
-    <section class="panel glass">
-      <div class="panel-head">
-        <h2>Recent Requests</h2>
-      </div>
-      <div id="requestsTable" class="request-table"></div>
-    </section>
-
   </div>
 
 <script>
-Chart.register(window['chartjs-plugin-annotation']);
+  Chart.register(window["chartjs-plugin-annotation"]);
 
-let ipChart;
-let trafficChart;
+  const initial = {{ initial | tojson }};
+  let ipChart = null;
+  let trafficChart = null;
 
-async function initCharts(data) {
+  const threshold = 50;
 
-  // IP CHART
-  const ctx1 = document.getElementById("ipChart").getContext("2d");
-  ipChart = new Chart(ctx1, {
-    type: "bar",
-    data: {
-      labels: data.top_ips_labels,
-      datasets: [{
-        data: data.top_ips_values
-      }]
-    },
-    options: { responsive: true }
-  });
+  function currentTheme(status) {
+    const isAttack = status === "DDoS Detected";
+    return {
+      statusClass: isAttack ? "danger" : "normal",
+      icon: isAttack ? "⚠" : "🛡",
+      line: isAttack ? "#ef4444" : "#22c55e",
+      fill: isAttack ? "rgba(239,68,68,0.18)" : "rgba(34,197,94,0.18)"
+    };
+  }
 
-  // TRAFFIC CHART
-  const ctx2 = document.getElementById("trafficChart").getContext("2d");
+  function renderStatus(data) {
+    const theme = currentTheme(data.status);
 
-  trafficChart = new Chart(ctx2, {
-    type: "line",
-    data: {
-      labels: data.time_labels,
-      datasets: [{
-        data: data.rate_history,
-        borderWidth: 3,
-        tension: 0.3,
-        fill: true
-      }]
-    },
-    options: {
-      responsive: true,
-      animation: false,
-      plugins: {
-        legend: { display: false },
-        annotation: {
-          annotations: {
-            thresholdLine: {
-              type: 'line',
-              yMin: 50,
-              yMax: 50,
-              borderColor: 'yellow',
-              borderWidth: 2,
-              label: {
-                enabled: true,
-                content: 'Threshold'
-              }
-            }
+    const banner = document.getElementById("statusBanner");
+    banner.classList.remove("normal", "danger");
+    banner.classList.add(theme.statusClass);
+
+    const badge = document.getElementById("statusBadge");
+    badge.className = `status-badge ${theme.statusClass}`;
+    badge.textContent = data.status;
+
+    document.getElementById("statusIcon").textContent = theme.icon;
+    document.getElementById("confidence").textContent = data.confidence ?? 0;
+    document.getElementById("snapshotConfidence").textContent = data.confidence ?? 0;
+    document.getElementById("confidenceBar").style.width = `${Math.max(0, Math.min(100, data.confidence || 0))}%`;
+    document.getElementById("topIpBar").style.width = `${Math.max(0, Math.min(100, data.confidence || 0))}%`;
+
+    document.getElementById("totalRequests").textContent = data.total_requests ?? 0;
+    document.getElementById("uniqueIps").textContent = data.unique_ips ?? 0;
+    document.getElementById("topIpCount").textContent = data.top_ip_count ?? 0;
+    document.getElementById("topIpCountText").textContent = data.top_ip_count ?? 0;
+    document.getElementById("topIp").textContent = data.top_ip ?? "-";
+    document.getElementById("lastUpdated").textContent = data.timestamp ?? "--:--:--";
+  }
+
+  function createIpChart(data) {
+    const ctx = document.getElementById("ipChart").getContext("2d");
+    const labels = data.top_ips_labels?.length ? data.top_ips_labels : ["No traffic"];
+    const values = data.top_ips_values?.length ? data.top_ips_values : [0];
+
+    ipChart = new Chart(ctx, {
+      type: "bar",
+      data: {
+        labels,
+        datasets: [{
+          data: values,
+          borderWidth: 0,
+          borderRadius: 12,
+          barThickness: 18,
+          backgroundColor: values.map((_, idx) => idx === 0 ? "rgba(239,68,68,0.95)" : "rgba(34,211,238,0.9)")
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        indexAxis: "y",
+        animation: false,
+        plugins: {
+          legend: { display: false }
+        },
+        scales: {
+          x: {
+            grid: { color: "rgba(148,163,184,0.10)" },
+            ticks: { color: "#94a3b8" }
+          },
+          y: {
+            grid: { display: false },
+            ticks: { color: "#cbd5e1" }
           }
         }
       }
-    }
-  });
-}
-
-function updateTrafficChart(data) {
-  const isAttack = data.status === "DDoS Detected";
-
-  trafficChart.data.labels = data.time_labels;
-  trafficChart.data.datasets[0].data = data.rate_history;
-  trafficChart.data.datasets[0].borderColor = isAttack ? "red" : "lime";
-  trafficChart.data.datasets[0].backgroundColor = isAttack
-    ? "rgba(255,0,0,0.2)"
-    : "rgba(0,255,0,0.2)";
-
-  trafficChart.update();
-}
-
-function renderLogs(logs) {
-  const box = document.getElementById("attackLogs");
-
-  if (!logs.length) {
-    box.innerHTML = `<div class="empty">No attacks detected</div>`;
-    return;
+    });
   }
 
-  box.innerHTML = logs.map(log => `
-    <div class="list-item danger">
-      [${log.time}] ${log.ip} → ${log.confidence}% → ${log.action}
-    </div>
-  `).join("");
-}
+  function createTrafficChart(data) {
+    const ctx = document.getElementById("trafficChart").getContext("2d");
+    const theme = currentTheme(data.status);
 
-function renderAlerts(alerts) {
-  const list = document.getElementById("alertsList");
-  list.innerHTML = alerts.map(a => `
-    <div class="list-item danger">${a.message}</div>
-  `).join("");
-}
+    const labels = data.time_labels?.length ? data.time_labels : ["--"];
+    const values = data.rate_history?.length ? data.rate_history : [0];
 
-function renderRequests(reqs) {
-  const table = document.getElementById("requestsTable");
+    trafficChart = new Chart(ctx, {
+      type: "line",
+      data: {
+        labels,
+        datasets: [{
+          label: "Packet Rate",
+          data: values,
+          borderColor: theme.line,
+          backgroundColor: theme.fill,
+          borderWidth: 3,
+          tension: 0.35,
+          fill: true,
+          pointRadius: 0
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: false,
+        plugins: {
+          legend: { display: false },
+          annotation: {
+            annotations: {
+              thresholdLine: {
+                type: "line",
+                yMin: threshold,
+                yMax: threshold,
+                borderColor: "rgba(250,204,21,0.95)",
+                borderWidth: 2,
+                borderDash: [6, 6],
+                label: {
+                  enabled: true,
+                  content: "Threshold"
+                }
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            grid: { display: false },
+            ticks: { color: "#94a3b8" }
+          },
+          y: {
+            beginAtZero: true,
+            grid: { color: "rgba(148,163,184,0.10)" },
+            ticks: { color: "#94a3b8" }
+          }
+        }
+      }
+    });
+  }
 
-  table.innerHTML = reqs.map(r => `
-    <div class="request-row">
-      <span>${r.time}</span>
-      <span>${r.ip}</span>
-      <span>${r.path}</span>
-    </div>
-  `).join("");
-}
+  function updateIpChart(data) {
+    if (!ipChart) return;
 
-async function refresh() {
-  const res = await fetch("/api/metrics");
-  const data = await res.json();
+    const labels = data.top_ips_labels?.length ? data.top_ips_labels : ["No traffic"];
+    const values = data.top_ips_values?.length ? data.top_ips_values : [0];
 
-  document.getElementById("confidence").textContent = data.confidence;
-  document.getElementById("totalRequests").textContent = data.total_requests;
-  document.getElementById("uniqueIps").textContent = data.unique_ips;
-  document.getElementById("topIp").textContent = data.top_ip;
-  document.getElementById("topIpCountText").textContent = data.top_ip_count;
+    ipChart.data.labels = labels;
+    ipChart.data.datasets[0].data = values;
+    ipChart.data.datasets[0].backgroundColor = values.map((_, idx) => idx === 0 ? "rgba(239,68,68,0.95)" : "rgba(34,211,238,0.9)");
+    ipChart.update();
+  }
 
-  updateTrafficChart(data);
-  renderLogs(data.attack_logs);
-  renderAlerts(data.alerts);
-  renderRequests(data.recent_requests);
-}
+  function updateTrafficChart(data) {
+    if (!trafficChart) return;
 
-// INIT
-fetch("/api/metrics")
-  .then(res => res.json())
-  .then(data => {
-    initCharts(data);
-    setInterval(refresh, 2000);
-  });
+    const theme = currentTheme(data.status);
+    trafficChart.data.labels = data.time_labels?.length ? data.time_labels : ["--"];
+    trafficChart.data.datasets[0].data = data.rate_history?.length ? data.rate_history : [0];
+    trafficChart.data.datasets[0].borderColor = theme.line;
+    trafficChart.data.datasets[0].backgroundColor = theme.fill;
+    trafficChart.update();
+  }
 
+  function renderAlerts(alerts) {
+    const list = document.getElementById("alertsList");
+
+    if (!alerts || !alerts.length) {
+      list.innerHTML = `<div class="empty">No alerts yet.</div>`;
+      return;
+    }
+
+    list.innerHTML = alerts.map(alert => `
+      <div class="alert-item warning">
+        <div class="alert-title">${alert.message}</div>
+        <div class="alert-meta">
+          <span>${alert.time}</span>
+          <span>Count: ${alert.count}</span>
+        </div>
+      </div>
+    `).join("");
+  }
+
+  function renderAttackLogs(logs) {
+    const box = document.getElementById("attackLogs");
+
+    if (!logs || !logs.length) {
+      box.innerHTML = `<div class="empty">No attacks detected yet.</div>`;
+      return;
+    }
+
+    box.innerHTML = logs.map(log => `
+      <div class="log-item">
+        <div class="log-time">${log.time}</div>
+        <div class="log-main">
+          <div class="log-ip">${log.ip}</div>
+          <div class="log-sub">${log.packet_rate} req/s • ${log.confidence}% confidence</div>
+        </div>
+        <span class="tag ${log.action === "Blocked" ? "danger" : "warning"}">${log.action}</span>
+      </div>
+    `).join("");
+  }
+
+  function renderRequests(reqs) {
+    const table = document.getElementById("requestsTable");
+
+    if (!reqs || !reqs.length) {
+      table.innerHTML = `<div class="empty">No requests yet.</div>`;
+      return;
+    }
+
+    table.innerHTML = reqs.map(req => `
+      <div class="request-row">
+        <span>${req.time || "-"}</span>
+        <span>${req.ip || "-"}</span>
+        <span class="method-${(req.method || "GET").toLowerCase()}">${req.method || "GET"}</span>
+        <span>${req.path || "-"}</span>
+        <span>${req.status ?? "-"}</span>
+        <span class="tag ${req.flag === "suspicious" ? "danger" : "success"}">${req.flag || "clean"}</span>
+      </div>
+    `).join("");
+  }
+
+  async function refresh() {
+    const res = await fetch("/api/metrics");
+    const data = await res.json();
+
+    renderStatus(data);
+    updateIpChart(data);
+    updateTrafficChart(data);
+    renderAlerts(data.alerts || []);
+    renderAttackLogs(data.attack_logs || []);
+    renderRequests(data.recent_requests || []);
+  }
+
+  // Init
+  renderStatus(initial);
+  createIpChart(initial);
+  createTrafficChart(initial);
+  renderAlerts(initial.alerts || []);
+  renderAttackLogs(initial.attack_logs || []);
+  renderRequests(initial.recent_requests || []);
+
+  document.getElementById("refreshBtn").addEventListener("click", refresh);
+  document.getElementById("simulateBtn").addEventListener("click", refresh);
+
+  setInterval(refresh, 2000);
 </script>
-
 </body>
 </html>
