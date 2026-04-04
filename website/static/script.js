@@ -23,6 +23,7 @@
   function renderReasons(reasons) {
     const wrap = document.getElementById("reasonList");
     const cardWrap = document.getElementById("reasonListCard");
+
     const html = (reasons && reasons.length)
       ? reasons.map(r => `<div class="reason-chip">${r}</div>`).join("")
       : `<div class="reason-chip">No strong indicators</div>`;
@@ -308,15 +309,19 @@
   }
 
   async function refresh() {
-    const res = await fetch("/api/metrics");
-    const data = await res.json();
+    try {
+      const res = await fetch("/api/metrics");
+      const data = await res.json();
 
-    renderStatus(data);
-    updateIpChart(data);
-    updateTrafficChart(data);
-    renderAlerts(data.alerts || []);
-    renderAttackLogs(data.attack_logs || []);
-    renderRequests(data.recent_requests || []);
+      renderStatus(data);
+      updateIpChart(data);
+      updateTrafficChart(data);
+      renderAlerts(data.alerts || []);
+      renderAttackLogs(data.attack_logs || []);
+      renderRequests(data.recent_requests || []);
+    } catch (err) {
+      console.error("Refresh failed:", err);
+    }
   }
 
   function init() {
