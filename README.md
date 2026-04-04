@@ -1,34 +1,49 @@
 # 🛡️ AI-Based DDoS Detection & Adaptive Firewall System
 
+A real-time cybersecurity system that detects Distributed Denial of Service (DDoS) attacks using network traffic analysis, machine learning, and an adaptive firewall response layer. The project also includes a Flask-based monitoring website and a live dashboard for visualizing traffic, alerts, attack logs, and firewall actions.
+
+---
+
 ## 🚀 Overview
 
-This project is a **real-time AI-powered cybersecurity system** designed to detect and mitigate Distributed Denial of Service (DDoS) attacks.
+This project is designed to detect and respond to traffic floods in real time.
 
-It integrates **network traffic monitoring, machine learning-based anomaly detection, automated firewall response, and a live visualization dashboard** into a unified system.
+It combines:
+- Packet capture
+- Feature extraction
+- Machine learning detection
+- IP-based firewall blocking
+- Live dashboard monitoring
+- Attack logging and auto-unblock support
+
+The system is built for local lab testing, demo environments, and hackathon presentation
 
 ---
 
 ## 🎯 Problem Statement
 
-Traditional DDoS detection systems rely on **static thresholds and delayed analysis**, making them ineffective against modern, dynamic, and automated attacks.
+Traditional security systems often rely on static rules or delayed manual analysis. That makes them weak against fast traffic floods and automated attacks.
 
-There is a need for:
-- ⚡ Real-time detection  
-- 🧠 Intelligent anomaly recognition  
-- 🔥 Automated response mechanisms  
+⚡This project addresses:
+- Real-time detection delay
+- Attack source identification
+- Manual mitigation overhead
+- Lack of visual monitoring
+- Poor response automation
 
 ---
 
 ## 💡 Proposed Solution
 
-Our system provides an **end-to-end pipeline** that:
+The system monitors live traffic, converts it into behavioral features, classifies it using a machine learning model, and automatically responds using firewall rules.
 
-- Captures real-time traffic (network + web)
-- Extracts behavioral traffic features
-- Detects anomalies using Machine Learning
-- Identifies attacker IPs
-- Automatically blocks malicious traffic using firewall rules
-- Visualizes all activity through a live dashboard
+If malicious activity is detected:
+- the suspicious IP is identified,
+- the IP is blocked using `iptables`,
+- the dashboard is updated,
+- the event is logged for review,
+- and the block can auto-expire after a short duration.
+
 
 ---
 
@@ -36,15 +51,17 @@ Our system provides an **end-to-end pipeline** that:
 ```
 Network / Web Traffic
         ↓
-Packet Capture Module (Scapy / Flask)
+Packet Capture Module
         ↓
 Feature Extraction Engine
         ↓
-Machine Learning Detection Model (Random Forest)
+Machine Learning Detection Model
         ↓
 Threat Classification Engine
         ↓
 Adaptive Firewall (iptables)
+        ↓
+Auto-Unblock / Logging
         ↓
 Real-Time Monitoring Dashboard
 ```
@@ -55,23 +72,40 @@ Real-Time Monitoring Dashboard
 ## ⚙️ Key Features
 
 ### 🔍 Real-Time Traffic Monitoring
-- Captures live network packets and HTTP requests
-- Tracks request rate, IP distribution, and traffic patterns
+- Captures live network traffic
+- Monitors web requests in the Flask app
+- Tracks request bursts and source IPs
 
-### 🧠 AI-Based DDoS Detection
-- Uses **Random Forest Classifier**
-- Detects anomalies based on traffic behavior
-- Provides **confidence score** for predictions
+### 🧠 Feature Extraction
+- Packet rate
+- SYN ratio
+- UDP ratio
+- Unique IP count
+- Top source IP
+- Packets from top source
+
+### ⚡ Machine Learning-Based Detection
+- Uses a trained classifier
+- Classifies traffic as normal or attack
+- Returns a confidence score
+- Uses a hybrid inference approach for stronger decisions
+
 
 ### 🔥 Adaptive Firewall Response
-- Automatically blocks attacker IPs using `iptables`
-- Prevents further malicious requests in real-time
+- Blocks suspicious IPs using `iptables`
+- Supports automatic unblocking after a short timer
+- Prevents duplicate blocking rules
+- Safer for repeated demo testing
 
-### 📊 Interactive Dashboard
-- Live traffic visualization (Chart.js graphs)
-- Real-time attack status (Normal / DDoS)
-- Top attacker identification
-- Confidence-based alerts
+
+### 📊 Interactive Dashboard & Visualization
+- Live status banner
+- Traffic graphs
+- Attacker snapshot
+- Recent request table
+- Attack logs panel
+- Alerts panel
+- Auto-refresh updates
 
 ### 📜 Attack Logging System
 - Logs attack events with:
@@ -90,7 +124,10 @@ Real-Time Monitoring Dashboard
 - Flask
 
 ### Machine Learning
-- Scikit-learn (Random Forest)
+- Pandas
+- Scikit-learn
+- Random Forest
+- Isolation Forest
 
 ### Networking
 - Scapy (packet capture & analysis)
@@ -109,17 +146,25 @@ Real-Time Monitoring Dashboard
 ddos_project/
 │
 ├── src/
-│ ├── packet_capture.py # Packet capture module
-│ ├── feature_extraction.py # Feature engineering
-│ ├── ddos_detector.py # ML detection engine
-│ ├── firewall_blocker.py # Firewall automation
+│   ├── packet_capture.py
+│   ├── feature_extraction.py
+│   ├── train_model.py
+│   ├── evaluate_model.py
+│   ├── ddos_detector.py
+│   ├── firewall_blocker.py
+│   └── __init__.py
 │
 ├── website/
-│ ├── app.py # Flask backend
-│ ├── templates/ # HTML dashboard
-│ └── static/ # CSS & assets
+│   ├── app.py
+│   ├── templates/
+│   │   ├── index.html
+│   │   └── dashboard.html
+│   └── static/
+│       ├── style.css
+│       └── script.js
 │
 ├── data/
+├── models/
 ├── docs/
 ├── README.md
 ├── requirements.txt
@@ -132,18 +177,15 @@ ddos_project/
 ## ⚡ How It Works
 
 1. Traffic is captured from network interfaces or web requests  
-2. Key features are extracted:
-   - Packet rate
-   - SYN ratio
-   - UDP ratio
-   - Unique IP count  
-3. ML model classifies traffic:
-   - Normal Traffic  
-   - DDoS Attack  
-4. If attack detected:
-   - Attacker IP is identified  
-   - Firewall blocks the IP  
-5. Dashboard updates in real-time  
+2. Features are extracted from the captured traffic.
+3. The machine learning model predicts whether the traffic is normal or malicious.
+4. If attack-like behavior is detected:
+   - the top source IP is identified,
+   - the firewall blocks the IP,
+   - logs are stored,
+   - the dashboard updates.  
+5. The block can automatically expire after a short time for safe testing.
+  
 
 ---
 
@@ -161,46 +203,102 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-### 3️⃣ Run Website Dashboard
+### 3️⃣ Train the model
+
+```bash
+python src/train_model.py
+```
+
+### 4️⃣ Evaluate the model
+
+```bash
+python src/evaluate_model.py
+```
+
+### 5️⃣ Run the website and dashboard
+
 ```bash
 python website/app.py
 ```
 
-### 4️⃣ Open Dashboard
-```bash
-http://127.0.0.1:5000/dashboard
+### 6️⃣ Open the pages
+
+```text
+Home page: http://127.0.0.1:5000/
+Dashboard: http://127.0.0.1:5000/dashboard
 ```
+---
+
+## 🖥️ Local Network Demo
+
+For demo purposes, the Flask app can be hosted on your local network and accessed from another device on the same Wi-Fi or hotspot.
+
+### Example setup
+
+* One laptop runs the server
+* Another laptop generates traffic
+* The dashboard shows live detection and response
+
+### Server run mode
+
+Use host binding that accepts LAN access:
+
+```bash
+python website/app.py
+```
+
+Inside `app.py`, you can later change the host to:
+
+```python
+app.run(host="0.0.0.0", port=5000, debug=True)
+```
+
+
 
 ---
 
 ### 📊 Demo Highlights
-- 🟢 Normal traffic monitoring
-- 🔴 Real-time DDoS detection
-- 📈 Live packet rate graph
-- 🚨 Attack logs with timestamps
-- 🔥 Automatic attacker IP blocking
+- 🟢 Live traffic monitoring
+- 🔴 Attack detection in real time
+- 🔍 Confidence-based classification
+- 🚨 Attacker IP identification
+- 🔥 Firewall blocking and auto-unblock
+- 📈 Live graph updates
+- 📜 Attack logs with timestamps
+- 📊 Clean dashboard for presentation
 
 ---
 
 ### 🔮 Future Enhancements
-- Deep Learning models (LSTM / Autoencoders)
-- Distributed DDoS detection system
-- Cloud deployment (AWS / Azure)
-- Adaptive threshold learning
-- Integration with SIEM tools
+- Better training dataset for higher accuracy
+- Deep learning-based anomaly detection
+- Multi-node attack simulation
+- Role-based login for admin dashboard
+- More detailed traffic analytics
+- SIEM integration
+- Alert export as CSV / PDF
 
 ---
   
 ### 🧠 Key Innovation
 
-Combines AI-based detection, real-time monitoring, and automated defense into a single intelligent cybersecurity system.
+This project combines:
+
+- AI-based traffic analysis
+- Real-time web monitoring
+- Automatic mitigation
+- Visual security telemetry
+
+That makes it more than a simple detector — it becomes a compact intelligent defense system.
+
+
 
 ---
 
 ### ⚠️ Disclaimer
 
-This project is intended for educational and research purposes only.
-Do not deploy or test on networks without proper authorization.
+This project is intended for educational, research, and hackathon demonstration purposes only.
+Do not test it on any network, device, or system without proper authorization.
 
 ---
 
