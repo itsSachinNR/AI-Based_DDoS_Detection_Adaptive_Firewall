@@ -1,3 +1,4 @@
+import math
 import os
 import sys
 import time
@@ -6,7 +7,6 @@ from threading import Lock, Timer
 
 from flask import Flask, jsonify, render_template, request, g
 
-# Make the project root visible so `src.*` imports work
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
@@ -20,9 +20,9 @@ app = Flask(__name__, template_folder="templates", static_folder="static")
 # CONFIG
 # ============================================================
 WINDOW_SECONDS = 10
-ATTACK_THRESHOLD = 50               # UI / heuristic reference only
-BLOCK_SECONDS = 30                  # temporary firewall block duration
-BLOCK_CONFIDENCE_THRESHOLD = 80.0   # only block if AI is confident enough
+ATTACK_THRESHOLD = 50
+BLOCK_SECONDS = 30
+BLOCK_CONFIDENCE_THRESHOLD = 80.0
 
 # ============================================================
 # LIVE STATE
@@ -30,14 +30,12 @@ BLOCK_CONFIDENCE_THRESHOLD = 80.0   # only block if AI is confident enough
 rate_history = deque(maxlen=20)
 time_labels = deque(maxlen=20)
 
-ip_windows = defaultdict(deque)     # request timestamps per IP
+ip_windows = defaultdict(deque)
 recent_requests = deque(maxlen=60)
 alerts = deque(maxlen=20)
 attack_logs = deque(maxlen=20)
 
 active_alerts = set()
-
-# ip -> expiry timestamp
 blocked_ips = {}
 block_timers = {}
 
@@ -57,9 +55,22 @@ def client_ip():
 def is_local_or_invalid_ip(ip: str) -> bool:
     if not ip or ip in {"-", "localhost"}:
         return True
-    if ip in {"127.0.0.1", "::1"}:
+    if ip in {"127.0.0.1", "::1", "0.0.0.0"}:
         return True
     return False
+
+
+def shannon_entropy_from_counts(counts: dict) -> float:
+    total = sum(counts.values())
+    if total <= 0:
+        return 0.0
+
+    entropy = 0.0
+    for count in counts.values():
+        p = count / total
+        if p > 0:
+            entropy -= p * math.log2(p)
+    return entropy
 
 
 def cleanup_old_hits(ip, now):
@@ -77,13 +88,9 @@ def purge_expired_block_records():
 
 
 def schedule_unblock(ip: str, duration: int = BLOCK_SECONDS):
-    """
-    Schedule automatic unblock after `duration` seconds.
-    """
-
     def _unblock():
         try:
-            unblock_ip(ip)
+            unblock_ip(ip, announce=False)
             print(f"🔓 Unblocked IP: {ip}")
         except Exception as e:
             print(f"Firewall unblock error for {ip}: {e}")
@@ -104,11 +111,7 @@ def schedule_unblock(ip: str, duration: int = BLOCK_SECONDS):
 
 
 def should_block_ip(ip: str, confidence: float) -> bool:
-    if is_local_or_invalid_ip(ip):
-        return False
-    if confidence < BLOCK_CONFIDENCE_THRESHOLD:
-        return False
-    return True
+    return not is_local_or_invalid_ip(ip) and confidence >= BLOCK_CONFIDENCE_THRESHOLD
 
 
 # ============================================================
@@ -117,42 +120,60 @@ def should_block_ip(ip: str, confidence: float) -> bool:
 def build_snapshot():
     with state_lock:
         purge_expired_block_records()
-
         active = {ip: len(q) for ip, q in ip_windows.items() if q}
         sorted_active = sorted(active.items(), key=lambda x: x[1], reverse=True)
 
     top_ip, top_count = (sorted_active[0] if sorted_active else ("-", 0))
-
     total_requests = sum(active.values())
     packet_rate = total_requests / WINDOW_SECONDS if total_requests else 0
 
-    # Keep chart history
     rate_history.append(packet_rate)
     time_labels.append(time.strftime("%H:%M:%S"))
 
-    # ML feature set for website traffic
+    # Web traffic is application-layer telemetry; fill what we can.
+    unique_ips = len(active)
+    avg_packets_per_ip = total_requests / unique_ips if unique_ips else 0
+    ip_concentration = top_count / total_requests if total_requests else 0
+    source_ip_entropy = shannon_entropy_from_counts(active)
+    packet_count = total_requests
+
     features = {
         "packet_rate": packet_rate,
-        "syn_ratio": 0,
-        "udp_ratio": 0,
-        "unique_ips": len(active),
+        "syn_ratio": 0.0,
+        "udp_ratio": 0.0,
+        "unique_ips": unique_ips,
+        "tcp_ratio": 1.0 if total_requests else 0.0,
+        "icmp_ratio": 0.0,
+        "other_ratio": 0.0,
+        "avg_packets_per_ip": avg_packets_per_ip,
+        "ip_concentration": ip_concentration,
+        "source_ip_entropy": source_ip_entropy,
+        "port_entropy": 0.0,
+        "unique_dst_ports": 1 if total_requests else 0,
+        "top_ip_packets": top_count,
+        "top_dst_port_packets": total_requests,
+        "packet_size_mean": 0.0,
+        "packet_size_std": 0.0,
+        "packet_size_min": 0.0,
+        "packet_size_max": 0.0,
+        "avg_inter_arrival": 0.0,
+        "inter_arrival_std": 0.0,
+        "burstiness": 0.0,
+        "byte_rate": 0.0,
+        "avg_bytes_per_packet": 0.0,
+        "packet_count": packet_count,
+        "total_bytes": 0.0,
+        "duration_seconds": WINDOW_SECONDS,
     }
 
-    # AI decision
     result = detect_ddos(features)
     confidence = result.get("confidence", 0.0)
     reasons = result.get("reasons", [])
 
     is_attack = result["prediction"] == 1
+    status = "DDoS Detected" if is_attack else "Normal Traffic"
+    status_type = "danger" if is_attack else "normal"
 
-    if is_attack:
-        status = "DDoS Detected"
-        status_type = "danger"
-    else:
-        status = "Normal Traffic"
-        status_type = "normal"
-
-    # Attack log entry
     if is_attack:
         log_entry = {
             "time": time.strftime("%H:%M:%S"),
@@ -166,18 +187,16 @@ def build_snapshot():
             "model_name": result.get("model_name", "Hybrid ML"),
         }
 
-        # avoid duplicate log spam for the same top IP
         if not attack_logs or attack_logs[0]["ip"] != top_ip:
             attack_logs.appendleft(log_entry)
 
-        # adaptive blocking
         if should_block_ip(top_ip, confidence):
             with state_lock:
                 already_blocked = top_ip in blocked_ips
 
             if not already_blocked:
                 try:
-                    block_ip(top_ip)
+                    block_ip(top_ip, duration=BLOCK_SECONDS, auto_unblock=False)
                     with state_lock:
                         blocked_ips[top_ip] = time.time() + BLOCK_SECONDS
                     schedule_unblock(top_ip, BLOCK_SECONDS)
@@ -202,7 +221,7 @@ def build_snapshot():
         "rf_attack_probability": result.get("rf_attack_probability", 0),
         "anomaly_attack_probability": result.get("anomaly_attack_probability", 0),
         "total_requests": total_requests,
-        "unique_ips": len(active),
+        "unique_ips": unique_ips,
         "top_ip": top_ip,
         "top_ip_count": top_count,
         "suspicious_ips": suspicious[:5],
@@ -309,4 +328,4 @@ def api_refresh():
 # MAIN
 # ============================================================
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(host="0.0.0.0", port=5000, debug=True, threaded=True)
