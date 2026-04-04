@@ -6,9 +6,7 @@
   <title>Security Command Dashboard</title>
 
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@1.4.0"></script>
 </head>
 
 <body class="dashboard-page">
@@ -40,17 +38,37 @@
     </header>
 
     <div class="hero-action-row">
-      <div class="hint-pill">Local demo • live monitoring • auto firewall</div>
-      <button class="button danger small-btn" id="simulateBtn">Simulate Attack</button>
+      <div class="hint-pill">Local demo • live monitoring • adaptive firewall • hybrid AI detection</div>
+      <button class="button danger small-btn" id="simulateBtn">Refresh Metrics</button>
     </div>
 
     <section class="status-banner glass" id="statusBanner">
       <div class="status-main">
-        <div class="status-icon" id="statusIcon">🛡</div>
-        <div>
-          <div class="status-badge {{ initial.status_type }}" id="statusBadge">{{ initial.status }}</div>
-          <div class="confidence-line">
-            <span id="confidence">{{ initial.confidence }}</span>% confidence
+        <div class="status-left">
+          <div class="status-icon" id="statusIcon">🛡</div>
+          <div>
+            <div class="status-badge {{ initial.status_type }}" id="statusBadge">{{ initial.status }}</div>
+            <div class="confidence-line">
+              <span id="confidence">{{ initial.confidence }}</span>% confidence
+              <span class="subinfo">
+                · Model: <strong id="modelName">{{ initial.model_name }}</strong>
+                · RF: <strong id="rfProb">{{ initial.rf_attack_probability }}</strong>%
+                · Anomaly: <strong id="anomalyProb">{{ initial.anomaly_attack_probability }}</strong>%
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div class="reason-column">
+          <div class="workflow-note">Why this was flagged</div>
+          <div id="reasonList" class="reason-list">
+            {% if initial.reasons and initial.reasons|length > 0 %}
+              {% for reason in initial.reasons %}
+                <div class="reason-chip">{{ reason }}</div>
+              {% endfor %}
+            {% else %}
+              <div class="reason-chip">No strong indicators</div>
+            {% endif %}
           </div>
         </div>
       </div>
@@ -60,7 +78,6 @@
           <div
             class="progress-fill {{ initial.status_type }}"
             id="confidenceBar"
-            style="width: {{ initial.confidence }}%;"
           ></div>
         </div>
         <div class="progress-labels">
@@ -113,7 +130,9 @@
           </div>
           <span class="tag warning">Ranked</span>
         </div>
-        <canvas id="ipChart"></canvas>
+        <div class="chart-wrap">
+          <canvas id="ipChart"></canvas>
+        </div>
       </div>
 
       <div class="side-stack">
@@ -137,10 +156,14 @@
                 <span>Confidence</span>
                 <strong><span id="snapshotConfidence">{{ initial.confidence }}</span>%</strong>
               </div>
+              <div class="snapshot-row">
+                <span>Decision Model</span>
+                <strong id="miniModelName">{{ initial.model_name }}</strong>
+              </div>
             </div>
 
             <div class="snapshot-bar">
-              <div id="topIpBar" class="snapshot-bar-fill" style="width: {{ initial.confidence }}%;"></div>
+              <div id="topIpBar" class="snapshot-bar-fill"></div>
             </div>
           </div>
         </div>
@@ -153,7 +176,28 @@
             </div>
             <span class="tag success">Auto refresh</span>
           </div>
-          <canvas id="trafficChart"></canvas>
+          <div class="chart-wrap">
+            <canvas id="trafficChart"></canvas>
+          </div>
+        </div>
+
+        <div class="panel glass">
+          <div class="panel-head">
+            <div>
+              <h2>Attack Reasons</h2>
+              <span>What made the model suspicious</span>
+            </div>
+            <span class="tag warning">AI Explainability</span>
+          </div>
+          <div id="reasonListCard" class="reason-list">
+            {% if initial.reasons and initial.reasons|length > 0 %}
+              {% for reason in initial.reasons %}
+                <div class="reason-chip">{{ reason }}</div>
+              {% endfor %}
+            {% else %}
+              <div class="reason-chip">No strong indicators</div>
+            {% endif %}
+          </div>
         </div>
 
         <div class="panel glass alerts-card">
@@ -165,7 +209,41 @@
             <span class="tag warning">Events</span>
           </div>
 
-          <div id="alertsList" class="alert-list"></div>
+          <div id="alertsList" class="alert-list">
+            {% if initial.alerts and initial.alerts|length > 0 %}
+              {% for alert in initial.alerts %}
+                <div class="alert-item warning">
+                  <div class="alert-title">{{ alert.message }}</div>
+                  <div class="alert-meta">
+                    <span>{{ alert.time }}</span>
+                    <span>Count: {{ alert.count }}</span>
+                  </div>
+                </div>
+              {% endfor %}
+            {% else %}
+              <div class="empty">No alerts yet.</div>
+            {% endif %}
+          </div>
+        </div>
+
+        <div class="panel glass">
+          <div class="panel-head">
+            <div>
+              <h2>Blocked IPs</h2>
+              <span>Temporary firewall blocks currently active</span>
+            </div>
+            <span class="tag danger">Firewall</span>
+          </div>
+
+          <div id="blockedIpsList" class="blocked-list">
+            {% if initial.blocked_ips and initial.blocked_ips|length > 0 %}
+              {% for ip in initial.blocked_ips %}
+                <span class="blocked-chip">{{ ip }}</span>
+              {% endfor %}
+            {% else %}
+              <div class="empty">No blocked IPs right now.</div>
+            {% endif %}
+          </div>
         </div>
       </div>
     </section>
@@ -180,7 +258,27 @@
           <span class="tag danger">History</span>
         </div>
 
-        <div id="attackLogs" class="log-list"></div>
+        <div id="attackLogs" class="log-list">
+          {% if initial.attack_logs and initial.attack_logs|length > 0 %}
+            {% for log in initial.attack_logs %}
+              <div class="log-item">
+                <div class="log-time">{{ log.time }}</div>
+                <div class="log-main">
+                  <div class="log-ip">{{ log.ip }}</div>
+                  <div class="log-sub">
+                    {{ log.packet_rate }} req/s • {{ log.confidence }}% confidence
+                    {% if log.reasons and log.reasons|length > 0 %}
+                      • {{ log.reasons[0] }}
+                    {% endif %}
+                  </div>
+                </div>
+                <span class="tag {{ 'danger' if log.action == 'Blocked' else 'warning' }}">{{ log.action }}</span>
+              </div>
+            {% endfor %}
+          {% else %}
+            <div class="empty">No attacks detected yet.</div>
+          {% endif %}
+        </div>
       </div>
 
       <div class="panel glass">
@@ -200,260 +298,29 @@
           <span>Status</span>
           <span>Flag</span>
         </div>
-        <div id="requestsTable" class="request-table"></div>
+        <div id="requestsTable" class="request-table">
+          {% if initial.recent_requests and initial.recent_requests|length > 0 %}
+            {% for req in initial.recent_requests %}
+              <div class="request-row">
+                <span>{{ req.time }}</span>
+                <span>{{ req.ip }}</span>
+                <span class="method-{{ req.method|lower }}">{{ req.method }}</span>
+                <span>{{ req.path }}</span>
+                <span>{{ req.status }}</span>
+                <span class="tag {{ 'danger' if req.flag == 'suspicious' else 'success' }}">{{ req.flag }}</span>
+              </div>
+            {% endfor %}
+          {% else %}
+            <div class="empty">No requests yet.</div>
+          {% endif %}
+        </div>
       </div>
     </section>
   </div>
 
-<script>
-  Chart.register(window["chartjs-plugin-annotation"]);
-
-  const initial = {{ initial | tojson }};
-  let ipChart = null;
-  let trafficChart = null;
-
-  const threshold = 50;
-
-  function currentTheme(status) {
-    const isAttack = status === "DDoS Detected";
-    return {
-      statusClass: isAttack ? "danger" : "normal",
-      icon: isAttack ? "⚠" : "🛡",
-      line: isAttack ? "#ef4444" : "#22c55e",
-      fill: isAttack ? "rgba(239,68,68,0.18)" : "rgba(34,197,94,0.18)"
-    };
-  }
-
-  function renderStatus(data) {
-    const theme = currentTheme(data.status);
-
-    const banner = document.getElementById("statusBanner");
-    banner.classList.remove("normal", "danger");
-    banner.classList.add(theme.statusClass);
-
-    const badge = document.getElementById("statusBadge");
-    badge.className = `status-badge ${theme.statusClass}`;
-    badge.textContent = data.status;
-
-    document.getElementById("statusIcon").textContent = theme.icon;
-    document.getElementById("confidence").textContent = data.confidence ?? 0;
-    document.getElementById("snapshotConfidence").textContent = data.confidence ?? 0;
-    document.getElementById("confidenceBar").style.width = `${Math.max(0, Math.min(100, data.confidence || 0))}%`;
-    document.getElementById("topIpBar").style.width = `${Math.max(0, Math.min(100, data.confidence || 0))}%`;
-
-    document.getElementById("totalRequests").textContent = data.total_requests ?? 0;
-    document.getElementById("uniqueIps").textContent = data.unique_ips ?? 0;
-    document.getElementById("topIpCount").textContent = data.top_ip_count ?? 0;
-    document.getElementById("topIpCountText").textContent = data.top_ip_count ?? 0;
-    document.getElementById("topIp").textContent = data.top_ip ?? "-";
-    document.getElementById("lastUpdated").textContent = data.timestamp ?? "--:--:--";
-  }
-
-  function createIpChart(data) {
-    const ctx = document.getElementById("ipChart").getContext("2d");
-    const labels = data.top_ips_labels?.length ? data.top_ips_labels : ["No traffic"];
-    const values = data.top_ips_values?.length ? data.top_ips_values : [0];
-
-    ipChart = new Chart(ctx, {
-      type: "bar",
-      data: {
-        labels,
-        datasets: [{
-          data: values,
-          borderWidth: 0,
-          borderRadius: 12,
-          barThickness: 18,
-          backgroundColor: values.map((_, idx) => idx === 0 ? "rgba(239,68,68,0.95)" : "rgba(34,211,238,0.9)")
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        indexAxis: "y",
-        animation: false,
-        plugins: {
-          legend: { display: false }
-        },
-        scales: {
-          x: {
-            grid: { color: "rgba(148,163,184,0.10)" },
-            ticks: { color: "#94a3b8" }
-          },
-          y: {
-            grid: { display: false },
-            ticks: { color: "#cbd5e1" }
-          }
-        }
-      }
-    });
-  }
-
-  function createTrafficChart(data) {
-    const ctx = document.getElementById("trafficChart").getContext("2d");
-    const theme = currentTheme(data.status);
-
-    const labels = data.time_labels?.length ? data.time_labels : ["--"];
-    const values = data.rate_history?.length ? data.rate_history : [0];
-
-    trafficChart = new Chart(ctx, {
-      type: "line",
-      data: {
-        labels,
-        datasets: [{
-          label: "Packet Rate",
-          data: values,
-          borderColor: theme.line,
-          backgroundColor: theme.fill,
-          borderWidth: 3,
-          tension: 0.35,
-          fill: true,
-          pointRadius: 0
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        animation: false,
-        plugins: {
-          legend: { display: false },
-          annotation: {
-            annotations: {
-              thresholdLine: {
-                type: "line",
-                yMin: threshold,
-                yMax: threshold,
-                borderColor: "rgba(250,204,21,0.95)",
-                borderWidth: 2,
-                borderDash: [6, 6],
-                label: {
-                  enabled: true,
-                  content: "Threshold"
-                }
-              }
-            }
-          }
-        },
-        scales: {
-          x: {
-            grid: { display: false },
-            ticks: { color: "#94a3b8" }
-          },
-          y: {
-            beginAtZero: true,
-            grid: { color: "rgba(148,163,184,0.10)" },
-            ticks: { color: "#94a3b8" }
-          }
-        }
-      }
-    });
-  }
-
-  function updateIpChart(data) {
-    if (!ipChart) return;
-
-    const labels = data.top_ips_labels?.length ? data.top_ips_labels : ["No traffic"];
-    const values = data.top_ips_values?.length ? data.top_ips_values : [0];
-
-    ipChart.data.labels = labels;
-    ipChart.data.datasets[0].data = values;
-    ipChart.data.datasets[0].backgroundColor = values.map((_, idx) => idx === 0 ? "rgba(239,68,68,0.95)" : "rgba(34,211,238,0.9)");
-    ipChart.update();
-  }
-
-  function updateTrafficChart(data) {
-    if (!trafficChart) return;
-
-    const theme = currentTheme(data.status);
-    trafficChart.data.labels = data.time_labels?.length ? data.time_labels : ["--"];
-    trafficChart.data.datasets[0].data = data.rate_history?.length ? data.rate_history : [0];
-    trafficChart.data.datasets[0].borderColor = theme.line;
-    trafficChart.data.datasets[0].backgroundColor = theme.fill;
-    trafficChart.update();
-  }
-
-  function renderAlerts(alerts) {
-    const list = document.getElementById("alertsList");
-
-    if (!alerts || !alerts.length) {
-      list.innerHTML = `<div class="empty">No alerts yet.</div>`;
-      return;
-    }
-
-    list.innerHTML = alerts.map(alert => `
-      <div class="alert-item warning">
-        <div class="alert-title">${alert.message}</div>
-        <div class="alert-meta">
-          <span>${alert.time}</span>
-          <span>Count: ${alert.count}</span>
-        </div>
-      </div>
-    `).join("");
-  }
-
-  function renderAttackLogs(logs) {
-    const box = document.getElementById("attackLogs");
-
-    if (!logs || !logs.length) {
-      box.innerHTML = `<div class="empty">No attacks detected yet.</div>`;
-      return;
-    }
-
-    box.innerHTML = logs.map(log => `
-      <div class="log-item">
-        <div class="log-time">${log.time}</div>
-        <div class="log-main">
-          <div class="log-ip">${log.ip}</div>
-          <div class="log-sub">${log.packet_rate} req/s • ${log.confidence}% confidence</div>
-        </div>
-        <span class="tag ${log.action === "Blocked" ? "danger" : "warning"}">${log.action}</span>
-      </div>
-    `).join("");
-  }
-
-  function renderRequests(reqs) {
-    const table = document.getElementById("requestsTable");
-
-    if (!reqs || !reqs.length) {
-      table.innerHTML = `<div class="empty">No requests yet.</div>`;
-      return;
-    }
-
-    table.innerHTML = reqs.map(req => `
-      <div class="request-row">
-        <span>${req.time || "-"}</span>
-        <span>${req.ip || "-"}</span>
-        <span class="method-${(req.method || "GET").toLowerCase()}">${req.method || "GET"}</span>
-        <span>${req.path || "-"}</span>
-        <span>${req.status ?? "-"}</span>
-        <span class="tag ${req.flag === "suspicious" ? "danger" : "success"}">${req.flag || "clean"}</span>
-      </div>
-    `).join("");
-  }
-
-  async function refresh() {
-    const res = await fetch("/api/metrics");
-    const data = await res.json();
-
-    renderStatus(data);
-    updateIpChart(data);
-    updateTrafficChart(data);
-    renderAlerts(data.alerts || []);
-    renderAttackLogs(data.attack_logs || []);
-    renderRequests(data.recent_requests || []);
-  }
-
-  // Init
-  renderStatus(initial);
-  createIpChart(initial);
-  createTrafficChart(initial);
-  renderAlerts(initial.alerts || []);
-  renderAttackLogs(initial.attack_logs || []);
-  renderRequests(initial.recent_requests || []);
-
-  document.getElementById("refreshBtn").addEventListener("click", refresh);
-  document.getElementById("simulateBtn").addEventListener("click", refresh);
-
-  setInterval(refresh, 2000);
-</script>
+  <script>
+    window.DDOS_INITIAL = {{ initial | tojson }};
+  </script>
+  <script src="{{ url_for('static', filename='script.js') }}"></script>
 </body>
 </html>
