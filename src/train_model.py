@@ -42,7 +42,7 @@ MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # ============================================================
-# FEATURES (must stay aligned with feature_extraction.py)
+# FEATURES
 # ============================================================
 FEATURE_COLUMNS = [
     "packet_rate",
@@ -84,11 +84,6 @@ def clamp(value: float, low: float, high: float) -> float:
 
 
 def normalize_label(value) -> int:
-    """
-    Converts labels like:
-    0 / 1, normal / attack, benign / malicious, ddos / clean
-    into integer labels.
-    """
     if pd.isna(value):
         return 0
 
@@ -106,9 +101,6 @@ def normalize_label(value) -> int:
 
 
 def ensure_numeric_frame(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Make sure all feature columns are numeric and present.
-    """
     out = df.copy()
 
     for col in FEATURE_COLUMNS:
@@ -116,10 +108,12 @@ def ensure_numeric_frame(df: pd.DataFrame) -> pd.DataFrame:
             out[col] = 0.0
         out[col] = pd.to_numeric(out[col], errors="coerce")
 
+    if "label" not in out.columns:
+        raise ValueError("Dataset must contain a 'label' column.")
+
     out["label"] = out["label"].apply(normalize_label)
     out = out[FEATURE_COLUMNS + ["label"]]
 
-    # fill missing numbers with median, then fallback to zero
     for col in FEATURE_COLUMNS:
         out[col] = out[col].fillna(out[col].median())
         out[col] = out[col].fillna(0.0)
@@ -128,9 +122,6 @@ def ensure_numeric_frame(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def add_derived_fields(row: Dict, rng: random.Random) -> Dict:
-    """
-    Fill derived numeric fields from the base traffic values.
-    """
     duration = float(row["duration_seconds"])
     packet_rate = float(row["packet_rate"])
     avg_bytes_per_packet = float(row["avg_bytes_per_packet"])
@@ -151,14 +142,12 @@ def add_derived_fields(row: Dict, rng: random.Random) -> Dict:
     row["byte_rate"] = round(total_bytes / duration, 3)
     row["avg_bytes_per_packet"] = round(total_bytes / packet_count, 3)
 
-    # remove helper-only field
     row.pop("_top_dst_port_share", None)
     return row
 
 
 # ============================================================
-# SYNTHETIC DATA GENERATION
-# (Used only if you do not yet have a real CSV dataset)
+# SYNTHETIC DATA
 # ============================================================
 def make_normal_sample(rng: random.Random) -> Dict:
     profile = rng.choice(["browse", "api", "mixed"])
@@ -204,7 +193,7 @@ def make_normal_sample(rng: random.Random) -> Dict:
         inter_arrival_std = rng.uniform(0.002, 0.02)
         burstiness = rng.uniform(0.25, 0.95)
 
-    else:  # mixed normal
+    else:
         packet_rate = rng.uniform(20, 60)
         syn_ratio = rng.uniform(0.08, 0.18)
         udp_ratio = rng.uniform(0.04, 0.12)
@@ -295,7 +284,7 @@ def make_attack_sample(rng: random.Random) -> Dict:
         inter_arrival_std = rng.uniform(0.001, 0.012)
         burstiness = rng.uniform(1.5, 4.5)
 
-    else:  # mixed attack
+    else:
         packet_rate = rng.uniform(450, 1800)
         syn_ratio = rng.uniform(0.25, 0.70)
         udp_ratio = rng.uniform(0.20, 0.65)
@@ -336,7 +325,7 @@ def make_attack_sample(rng: random.Random) -> Dict:
         "avg_inter_arrival": avg_inter_arrival,
         "inter_arrival_std": inter_arrival_std,
         "burstiness": burstiness,
-        "avg_bytes_per_packet": packet_size_mean * random.Random(rng.random()).uniform(0.96, 1.04),
+        "avg_bytes_per_packet": packet_size_mean * rng.uniform(0.96, 1.04),
         "duration_seconds": duration_seconds,
         "_top_dst_port_share": top_dst_port_share,
     }
@@ -367,10 +356,6 @@ def generate_synthetic_dataset(n_normal: int = 1200, n_attack: int = 1200, seed:
 # DATA LOADING
 # ============================================================
 def load_real_dataset() -> Tuple[pd.DataFrame | None, str]:
-    """
-    Try loading a real CSV dataset if present.
-    Expected: a CSV with FEATURE_COLUMNS and a 'label' column.
-    """
     candidates = [
         DATA_DIR / "ddos_dataset.csv",
         DATA_DIR / "training_data.csv",
@@ -383,18 +368,17 @@ def load_real_dataset() -> Tuple[pd.DataFrame | None, str]:
             df = pd.read_csv(path)
             if "label" not in df.columns:
                 raise ValueError(f"{path} exists but has no 'label' column.")
-            df = ensure_numeric_frame(df)
-            return df, str(path)
+            return ensure_numeric_frame(df), str(path)
 
     return None, "synthetic_dataset_generated"
 
 
 # ============================================================
-# MODEL BUILDERS
+# MODELS
 # ============================================================
 def build_supervised_model() -> Pipeline:
     rf = RandomForestClassifier(
-        n_estimators=250,
+        n_estimators=300,
         random_state=42,
         class_weight="balanced_subsample",
         n_jobs=-1,
@@ -402,7 +386,7 @@ def build_supervised_model() -> Pipeline:
     )
 
     et = ExtraTreesClassifier(
-        n_estimators=250,
+        n_estimators=300,
         random_state=42,
         class_weight="balanced_subsample",
         n_jobs=-1,
@@ -410,7 +394,7 @@ def build_supervised_model() -> Pipeline:
     )
 
     gb = GradientBoostingClassifier(
-        n_estimators=150,
+        n_estimators=180,
         learning_rate=0.05,
         subsample=0.9,
         random_state=42,
@@ -427,17 +411,16 @@ def build_supervised_model() -> Pipeline:
         n_jobs=-1,
     )
 
-    model = Pipeline(
+    return Pipeline(
         steps=[
             ("imputer", SimpleImputer(strategy="median")),
             ("model", ensemble),
         ]
     )
-    return model
 
 
 def build_anomaly_model() -> Pipeline:
-    model = Pipeline(
+    return Pipeline(
         steps=[
             ("imputer", SimpleImputer(strategy="median")),
             ("scaler", StandardScaler()),
@@ -449,35 +432,29 @@ def build_anomaly_model() -> Pipeline:
             )),
         ]
     )
-    return model
 
 
 # ============================================================
-# TRAINING / EVALUATION
+# EVALUATION / SAVE
 # ============================================================
 def evaluate_classifier(model: Pipeline, X_test: pd.DataFrame, y_test: pd.Series) -> Dict:
     y_pred = model.predict(X_test)
 
-    # Probability for class 1
-    y_proba = model.predict_proba(X_test)
-    classes = list(model.named_steps["model"].classes_)
+    proba = model.predict_proba(X_test)
+    model_wrapper = model.named_steps["model"]
+    classes = list(model_wrapper.classes_)
     attack_index = classes.index(1) if 1 in classes else 0
-    attack_probs = y_proba[:, attack_index]
+    y_score = proba[:, attack_index]
 
     metrics = {
         "accuracy": round(accuracy_score(y_test, y_pred), 4),
         "precision": round(precision_score(y_test, y_pred, zero_division=0), 4),
         "recall": round(recall_score(y_test, y_pred, zero_division=0), 4),
         "f1": round(f1_score(y_test, y_pred, zero_division=0), 4),
+        "roc_auc": round(roc_auc_score(y_test, y_score), 4),
         "confusion_matrix": confusion_matrix(y_test, y_pred).tolist(),
         "classification_report": classification_report(y_test, y_pred, digits=4, zero_division=0),
     }
-
-    try:
-        metrics["roc_auc"] = round(roc_auc_score(y_test, attack_probs), 4)
-    except Exception:
-        metrics["roc_auc"] = None
-
     return metrics
 
 
@@ -519,16 +496,6 @@ def save_artifacts(
     with open(metrics_path, "w", encoding="utf-8") as f:
         json.dump(metrics, f, indent=2)
 
-    # Save a copy of the training data if it was synthetic
-    if dataset_source == "synthetic_dataset_generated":
-        synthetic_csv = DATA_DIR / "generated_training_data.csv"
-        # optional: fill any missing values before save
-        try:
-            # This file is useful for debugging and future improvement
-            pass
-        except Exception:
-            pass
-
     print(f"\nSaved classifier to: {classifier_path}")
     print(f"Saved anomaly model to: {anomaly_path}")
     print(f"Saved feature list to: {feature_path}")
@@ -554,11 +521,10 @@ def train_models() -> Tuple[Pipeline, Pipeline, Dict]:
         df = real_df.copy()
         print(f"Loaded real dataset from: {source}")
     else:
-        print("No real CSV dataset found. Generating synthetic training data for now...")
+        print("No real CSV dataset found. Generating synthetic training data...")
         df = generate_synthetic_dataset(n_normal=1200, n_attack=1200, seed=42)
         source = "synthetic_dataset_generated"
 
-    # Optional: save the training data used
     training_csv = DATA_DIR / "training_data_used.csv"
     df.to_csv(training_csv, index=False)
     print(f"Training data saved to: {training_csv}")
@@ -577,7 +543,6 @@ def train_models() -> Tuple[Pipeline, Pipeline, Dict]:
     classifier = build_supervised_model()
     classifier.fit(X_train, y_train)
 
-    # Train anomaly model on BENIGN traffic only
     normal_train = X_train[y_train == 0]
     anomaly_model = build_anomaly_model()
     anomaly_model.fit(normal_train)
@@ -610,10 +575,6 @@ def train_models() -> Tuple[Pipeline, Pipeline, Dict]:
     return classifier, anomaly_model, metrics
 
 
-# ============================================================
-# MAIN
-# ============================================================
 if __name__ == "__main__":
     train_models()
-    print("\nTraining complete. Your model artifacts are now saved in /models.")
-    print("Next step: update ddos_detector.py to load these saved models instead of retraining every run.")
+    print("\nTraining complete. Model artifacts are now in /models.")
