@@ -34,6 +34,14 @@ body{
     linear-gradient(180deg, var(--bg), var(--bg2));
 }
 
+body.dashboard-page{
+  background:
+    radial-gradient(circle at 18% 16%, rgba(40, 215, 248, 0.10), transparent 22%),
+    radial-gradient(circle at 80% 18%, rgba(48, 224, 123, 0.08), transparent 20%),
+    radial-gradient(circle at 50% 82%, rgba(255, 84, 111, 0.08), transparent 22%),
+    linear-gradient(180deg, var(--bg), var(--bg2));
+}
+
 .bg-glow{
   position: fixed;
   inset: 0;
@@ -440,7 +448,7 @@ body{
   font-size: 1.15rem;
 }
 
-/* Dashboard layout */
+/* Dashboard-specific */
 .status-banner{
   display: grid;
   grid-template-columns: 1.2fr 1fr;
@@ -462,6 +470,19 @@ body{
   display: flex;
   align-items: center;
   gap: 18px;
+  flex-wrap: wrap;
+}
+
+.status-left{
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.reason-column{
+  min-width: 280px;
+  flex: 1;
 }
 
 .status-icon{
@@ -522,6 +543,11 @@ body{
   margin-right: 8px;
 }
 
+.subinfo{
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
 .status-progress{
   display: flex;
   flex-direction: column;
@@ -556,6 +582,24 @@ body{
   justify-content: space-between;
   color: var(--muted);
   font-size: 0.82rem;
+}
+
+.reason-list{
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.reason-chip{
+  display: inline-flex;
+  align-items: center;
+  padding: 9px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border);
+  color: #dbeafe;
+  font-size: 0.88rem;
 }
 
 .metrics-grid{
@@ -684,6 +728,12 @@ body{
   min-height: 430px;
 }
 
+.chart-wrap{
+  position: relative;
+  height: calc(100% - 48px);
+  min-height: 280px;
+}
+
 canvas{
   width: 100% !important;
   height: 100% !important;
@@ -704,6 +754,7 @@ canvas{
   font-weight: 900;
   letter-spacing: 0.02em;
   color: #ff6b7d;
+  word-break: break-word;
 }
 
 .snapshot-meta{
@@ -771,9 +822,24 @@ canvas{
   font-size: 0.86rem;
 }
 
+.blocked-list{
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.blocked-chip{
+  padding: 9px 12px;
+  border-radius: 999px;
+  background: rgba(239,68,68,0.14);
+  color: #fda4af;
+  border: 1px solid rgba(239,68,68,0.25);
+  font-size: 0.86rem;
+}
+
 .bottom-grid{
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr 1.35fr;
   gap: 18px;
   margin-bottom: 6px;
 }
