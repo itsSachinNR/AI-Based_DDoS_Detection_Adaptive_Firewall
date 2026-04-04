@@ -115,10 +115,11 @@ def should_block_ip(ip: str, confidence: float) -> bool:
 # SNAPSHOT BUILDER
 # ============================================================
 def build_snapshot():
-    purge_expired_block_records()
+    with state_lock:
+        purge_expired_block_records()
 
-    active = {ip: len(q) for ip, q in ip_windows.items() if q}
-    sorted_active = sorted(active.items(), key=lambda x: x[1], reverse=True)
+        active = {ip: len(q) for ip, q in ip_windows.items() if q}
+        sorted_active = sorted(active.items(), key=lambda x: x[1], reverse=True)
 
     top_ip, top_count = (sorted_active[0] if sorted_active else ("-", 0))
 
@@ -170,18 +171,26 @@ def build_snapshot():
             attack_logs.appendleft(log_entry)
 
         # adaptive blocking
-        if should_block_ip(top_ip, confidence) and top_ip not in blocked_ips:
-            try:
-                block_ip(top_ip)
-                blocked_ips[top_ip] = time.time() + BLOCK_SECONDS
-                schedule_unblock(top_ip, BLOCK_SECONDS)
-                print(f"🔥 Blocked IP: {top_ip} for {BLOCK_SECONDS} seconds")
-            except Exception as e:
-                print(f"Firewall error: {e}")
+        if should_block_ip(top_ip, confidence):
+            with state_lock:
+                already_blocked = top_ip in blocked_ips
+
+            if not already_blocked:
+                try:
+                    block_ip(top_ip)
+                    with state_lock:
+                        blocked_ips[top_ip] = time.time() + BLOCK_SECONDS
+                    schedule_unblock(top_ip, BLOCK_SECONDS)
+                    print(f"🔥 Blocked IP: {top_ip} for {BLOCK_SECONDS} seconds")
+                except Exception as e:
+                    print(f"Firewall error: {e}")
 
     suspicious = [(ip, count) for ip, count in sorted_active if count > 0]
     top_labels = [ip for ip, _ in sorted_active[:8]] or ["No traffic"]
     top_values = [count for _, count in sorted_active[:8]] or [0]
+
+    with state_lock:
+        blocked_list = list(blocked_ips.keys())
 
     return {
         "status": status,
@@ -202,7 +211,7 @@ def build_snapshot():
         "recent_requests": list(recent_requests),
         "alerts": list(alerts),
         "attack_logs": list(attack_logs),
-        "blocked_ips": list(blocked_ips.keys()),
+        "blocked_ips": blocked_list,
         "timestamp": time.strftime("%H:%M:%S"),
         "rate_history": list(rate_history),
         "time_labels": list(time_labels),
