@@ -10,6 +10,8 @@ from typing import Dict, Tuple, Any
 import pandas as pd
 from sklearn.pipeline import Pipeline
 
+from src.train_model import FEATURE_COLUMNS as TRAIN_FEATURE_COLUMNS, train_models
+
 # ============================================================
 # PATHS
 # ============================================================
@@ -20,32 +22,7 @@ CLASSIFIER_PATH = MODELS_DIR / "ddos_classifier.pkl"
 ANOMALY_PATH = MODELS_DIR / "ddos_anomaly.pkl"
 FEATURE_COLUMNS_PATH = MODELS_DIR / "feature_columns.json"
 
-# Keep this aligned with train_model.py
-DEFAULT_FEATURE_COLUMNS = [
-    "packet_rate",
-    "syn_ratio",
-    "udp_ratio",
-    "unique_ips",
-    "tcp_ratio",
-    "icmp_ratio",
-    "other_ratio",
-    "avg_packets_per_ip",
-    "ip_concentration",
-    "source_ip_entropy",
-    "port_entropy",
-    "unique_dst_ports",
-    "top_dst_port_packets",
-    "packet_size_mean",
-    "packet_size_std",
-    "packet_size_min",
-    "packet_size_max",
-    "avg_inter_arrival",
-    "inter_arrival_std",
-    "burstiness",
-    "byte_rate",
-    "avg_bytes_per_packet",
-]
-
+DEFAULT_FEATURE_COLUMNS = list(TRAIN_FEATURE_COLUMNS)
 DEFAULT_FEATURE_VALUES = {feature: 0.0 for feature in DEFAULT_FEATURE_COLUMNS}
 
 
@@ -53,23 +30,15 @@ DEFAULT_FEATURE_VALUES = {feature: 0.0 for feature in DEFAULT_FEATURE_COLUMNS}
 # MODEL LOADING
 # ============================================================
 def _ensure_models_exist() -> None:
-    """
-    If the trained artifacts are missing, train them once.
-    This keeps the detector usable even on first run.
-    """
     if CLASSIFIER_PATH.exists() and ANOMALY_PATH.exists():
         return
 
     print("Model artifacts not found. Training a fresh model once...")
-    from src.train_model import train_models
     train_models()
 
 
 @lru_cache(maxsize=1)
 def load_artifacts() -> Tuple[Pipeline, Pipeline, list]:
-    """
-    Load the saved classifier, anomaly model, and feature list.
-    """
     _ensure_models_exist()
 
     if not CLASSIFIER_PATH.exists():
@@ -96,18 +65,11 @@ def load_artifacts() -> Tuple[Pipeline, Pipeline, list]:
 # INPUT PREPARATION
 # ============================================================
 def prepare_sample(features: Dict[str, Any], feature_columns: list) -> pd.DataFrame:
-    """
-    Convert a feature dictionary into a one-row DataFrame
-    in the exact order expected by the model.
-    """
     row = {}
-
     for col in feature_columns:
         value = features.get(col, DEFAULT_FEATURE_VALUES.get(col, 0.0))
-
         if value is None or value == "":
             value = 0.0
-
         try:
             row[col] = float(value)
         except (TypeError, ValueError):
@@ -117,9 +79,6 @@ def prepare_sample(features: Dict[str, Any], feature_columns: list) -> pd.DataFr
 
 
 def explain_signal(sample_row: pd.Series) -> list:
-    """
-    Simple explainability layer for dashboard / debug output.
-    """
     reasons = []
 
     if sample_row.get("packet_rate", 0) > 500:
@@ -152,13 +111,16 @@ def explain_signal(sample_row: pd.Series) -> list:
     if sample_row.get("avg_inter_arrival", 0) < 0.002:
         reasons.append("Extremely fast packet arrivals")
 
+    if sample_row.get("top_ip_packets", 0) > 0 and sample_row.get("packet_count", 0) > 0:
+        share = sample_row.get("top_ip_packets", 0) / max(sample_row.get("packet_count", 1), 1)
+        if share > 0.70:
+            reasons.append("One IP accounts for most packets")
+
     return reasons
 
 
 def _safe_sigmoid(x: float) -> float:
-    """
-    Convert raw anomaly score into a 0..1 probability-like value.
-    """
+    x = max(min(x, 20.0), -20.0)
     return 1.0 / (1.0 + math.exp(x * 5.0))
 
 
@@ -166,58 +128,34 @@ def _safe_sigmoid(x: float) -> float:
 # MAIN DETECTION FUNCTION
 # ============================================================
 def detect_ddos(features: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Input:
-        features dictionary from feature_extraction.py
-
-    Output:
-        {
-            "prediction": 0 or 1,
-            "confidence": float,
-            "rf_attack_probability": float,
-            "anomaly_attack_probability": float,
-            "reasons": [ ... ]
-        }
-    """
     classifier, anomaly_model, feature_columns = load_artifacts()
 
     sample = prepare_sample(features, feature_columns)
     sample_row = sample.iloc[0]
 
-    # --- Supervised model prediction ---
     rf_prediction = int(classifier.predict(sample)[0])
     rf_probabilities = classifier.predict_proba(sample)[0]
 
-    # Probability for class 1 (attack)
     model_wrapper = classifier.named_steps["model"]
     classes = list(model_wrapper.classes_)
     attack_index = classes.index(1) if 1 in classes else 0
     rf_attack_prob = float(rf_probabilities[attack_index])
 
-    # --- Anomaly model signal ---
     anomaly_score_raw = float(anomaly_model.decision_function(sample)[0])
     anomaly_attack_prob = _safe_sigmoid(anomaly_score_raw)
 
-    # --- Hybrid decision ---
-    # Weighted combination: supervised gets more weight
     final_attack_prob = (0.75 * rf_attack_prob) + (0.25 * anomaly_attack_prob)
 
-    # Decision rule:
-    # - attack if confidence is sufficiently high
-    # - or if both models lean suspicious
     prediction = 1 if (
         final_attack_prob >= 0.55
         or (rf_prediction == 1 and anomaly_attack_prob >= 0.40)
     ) else 0
 
-    confidence = round(
-        final_attack_prob * 100, 2
-    ) if prediction == 1 else round((1.0 - final_attack_prob) * 100, 2)
-
+    confidence = round(final_attack_prob * 100, 2) if prediction == 1 else round((1.0 - final_attack_prob) * 100, 2)
     reasons = explain_signal(sample_row)
 
     return {
-        "prediction": int(prediction),                  # 0 = normal, 1 = attack
+        "prediction": int(prediction),
         "confidence": confidence,
         "rf_attack_probability": round(rf_attack_prob * 100, 2),
         "anomaly_attack_probability": round(anomaly_attack_prob * 100, 2),
@@ -226,18 +164,13 @@ def detect_ddos(features: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-# ============================================================
-# OPTIONAL MANUAL TEST
-# ============================================================
 if __name__ == "__main__":
-    print("DDoS detector module loaded.")
-    print("This file now loads saved models and performs hybrid inference.")
-    print("Run train_model.py first if model artifacts are missing.")
+    print("DDoS detector module loaded successfully.")
 
     try:
-        from feature_extraction import start_feature_extraction
+        from src.feature_extraction import start_feature_extraction
 
-        features = start_feature_extraction()
+        features = start_feature_extraction(duration=10, verbose=True)
         result = detect_ddos(features)
 
         print("\n===== DETECTION RESULT =====")
