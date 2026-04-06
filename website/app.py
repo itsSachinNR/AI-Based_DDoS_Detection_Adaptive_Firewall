@@ -81,7 +81,6 @@ def cleanup_old_hits(ip, now):
     while q and now - q[0] > WINDOW_SECONDS:
         q.popleft()
 
-    # Remove empty buckets so the dictionary does not grow forever
     if not q:
         ip_windows.pop(ip, None)
 
@@ -130,7 +129,7 @@ def build_snapshot():
     with state_lock:
         purge_expired_block_records()
 
-        # Clean every IP bucket based on the current time, then remove empties
+        # Clean every IP bucket based on the current time
         for ip in list(ip_windows.keys()):
             cleanup_old_hits(ip, now)
 
@@ -224,7 +223,10 @@ def build_snapshot():
 
     suspicious = [(ip, count) for ip, count in sorted_active if count > 0]
     top_labels = [ip for ip, _ in sorted_active[:8]] or ["No traffic"]
-    top_values = [count for _, count in sorted_active[:8]] or [0]
+
+    # Use normalized values in the Top Active IPs chart so it does not keep
+    # visually climbing forever. The snapshot still shows the actual count.
+    top_values = [round(count / WINDOW_SECONDS, 2) for _, count in sorted_active[:8]] or [0]
 
     with state_lock:
         blocked_list = list(blocked_ips.keys())
