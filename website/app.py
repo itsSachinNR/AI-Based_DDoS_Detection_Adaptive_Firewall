@@ -1,21 +1,39 @@
 from __future__ import annotations
 
+import copy
 import math
 import os
 import sys
 import time
 from collections import defaultdict, deque
 from threading import Lock, Timer
+from typing import Dict, Any
 
 from flask import Flask, jsonify, render_template, request, g
 
-# Make the project root visible so `src.*` imports work
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
 
 from src.ddos_detector import detect_ddos
 from src.firewall_blocker import block_ip, unblock_ip
+
+from db import (
+    init_db,
+    load_alerts,
+    load_attack_logs,
+    load_blocked_ips,
+    load_last_snapshot,
+    load_recent_requests,
+    load_traffic_history,
+    save_alert,
+    save_attack_log,
+    save_blocked_ip,
+    save_last_snapshot,
+    save_recent_request,
+    save_traffic_point,
+    delete_blocked_ip,
+)
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
 
@@ -43,6 +61,7 @@ blocked_ips = {}                  # ip -> expiry timestamp
 block_timers = {}                 # ip -> Timer
 
 state_lock = Lock()
+persisted_snapshot: Dict[str, Any] | None = None
 
 
 # ============================================================
@@ -87,10 +106,19 @@ def cleanup_old_hits(ip, now):
 
 def purge_expired_block_records():
     now = time.time()
-    expired = [ip for ip, expiry in blocked_ips.items() if now >= expiry]
-    for ip in expired:
+    expired = [(ip, expiry) for ip, expiry in blocked_ips.items() if now >= expiry]
+
+    for ip, _ in expired:
         blocked_ips.pop(ip, None)
         block_timers.pop(ip, None)
+        try:
+            unblock_ip(ip, announce=False)
+        except Exception:
+            pass
+        try:
+            delete_blocked_ip(ip)
+        except Exception:
+            pass
 
 
 def schedule_unblock(ip: str, duration: int = BLOCK_SECONDS):
@@ -104,6 +132,10 @@ def schedule_unblock(ip: str, duration: int = BLOCK_SECONDS):
             with state_lock:
                 blocked_ips.pop(ip, None)
                 block_timers.pop(ip, None)
+            try:
+                delete_blocked_ip(ip)
+            except Exception:
+                pass
 
     with state_lock:
         existing = block_timers.get(ip)
@@ -120,10 +152,62 @@ def should_block_ip(ip: str, confidence: float) -> bool:
     return not is_local_or_invalid_ip(ip) and confidence >= BLOCK_CONFIDENCE_THRESHOLD
 
 
+def bootstrap_state():
+    """
+    Load the last session from SQLite into memory so the dashboard
+    still shows data after app restart.
+    """
+    global persisted_snapshot
+
+    recent_requests.extend(load_recent_requests(limit=60))
+    alerts.extend(load_alerts(limit=20))
+    attack_logs.extend(load_attack_logs(limit=20))
+
+    for item in load_traffic_history(limit=20):
+        rate_history.append(item["rate"])
+        time_labels.append(item["label"])
+
+    persisted_snapshot = load_last_snapshot() or {}
+
+    # Fallback if traffic history table is empty but snapshot has series
+    if not rate_history and isinstance(persisted_snapshot, dict):
+        for rate in persisted_snapshot.get("rate_history", []):
+            rate_history.append(rate)
+        for label in persisted_snapshot.get("time_labels", []):
+            time_labels.append(label)
+
+    # Restore blocked IPs and re-schedule unblocking timers
+    now = time.time()
+    for item in load_blocked_ips():
+        ip = item["ip"]
+        expires_at = float(item["expires_at"])
+        remaining = int(expires_at - now)
+
+        if remaining > 0 and not is_local_or_invalid_ip(ip):
+            blocked_ips[ip] = expires_at
+            schedule_unblock(ip, remaining)
+        else:
+            try:
+                unblock_ip(ip, announce=False)
+            except Exception:
+                pass
+            try:
+                delete_blocked_ip(ip)
+            except Exception:
+                pass
+
+
+# Initialize DB and load persisted state once on startup
+init_db()
+bootstrap_state()
+
+
 # ============================================================
 # SNAPSHOT BUILDER
 # ============================================================
 def build_snapshot():
+    global persisted_snapshot
+
     now = time.time()
 
     with state_lock:
@@ -136,15 +220,13 @@ def build_snapshot():
         active = {ip: len(q) for ip, q in ip_windows.items() if q}
         sorted_active = sorted(active.items(), key=lambda x: x[1], reverse=True)
 
+        blocked_list = list(blocked_ips.keys())
+
     top_ip, top_count = (sorted_active[0] if sorted_active else ("-", 0))
     total_requests = sum(active.values())
 
     # Real sliding-window rate
     packet_rate = total_requests / WINDOW_SECONDS if total_requests else 0
-
-    # Keep chart history stable over time
-    rate_history.append(packet_rate)
-    time_labels.append(time.strftime("%H:%M:%S"))
 
     # Web traffic is application-layer telemetry; fill what we can.
     unique_ips = len(active)
@@ -153,7 +235,6 @@ def build_snapshot():
     source_ip_entropy = shannon_entropy_from_counts(active)
     packet_count = total_requests
 
-    # Aligned to the richer ML schema
     features = {
         "packet_rate": packet_rate,
         "syn_ratio": 0.0,
@@ -191,47 +272,14 @@ def build_snapshot():
     status = "DDoS Detected" if is_attack else "Normal Traffic"
     status_type = "danger" if is_attack else "normal"
 
-    if is_attack:
-        log_entry = {
-            "time": time.strftime("%H:%M:%S"),
-            "ip": top_ip,
-            "confidence": confidence,
-            "packet_rate": round(packet_rate, 2),
-            "action": "Blocked" if should_block_ip(top_ip, confidence) else "Detected",
-            "reasons": reasons[:5],
-            "rf_attack_probability": result.get("rf_attack_probability", 0),
-            "anomaly_attack_probability": result.get("anomaly_attack_probability", 0),
-            "model_name": result.get("model_name", "Hybrid ML"),
-        }
+    # If we have live traffic, refresh the persisted snapshot and history
+    if total_requests > 0:
+        label = time.strftime("%H:%M:%S")
+        rate_history.append(packet_rate)
+        time_labels.append(label)
+        save_traffic_point(label, packet_rate, label)
 
-        if not attack_logs or attack_logs[0]["ip"] != top_ip:
-            attack_logs.appendleft(log_entry)
-
-        if should_block_ip(top_ip, confidence):
-            with state_lock:
-                already_blocked = top_ip in blocked_ips
-
-            if not already_blocked:
-                try:
-                    block_ip(top_ip, duration=BLOCK_SECONDS, auto_unblock=False)
-                    with state_lock:
-                        blocked_ips[top_ip] = time.time() + BLOCK_SECONDS
-                    schedule_unblock(top_ip, BLOCK_SECONDS)
-                    print(f"🔥 Blocked IP: {top_ip} for {BLOCK_SECONDS} seconds")
-                except Exception as e:
-                    print(f"Firewall error: {e}")
-
-    suspicious = [(ip, count) for ip, count in sorted_active if count > 0]
-    top_labels = [ip for ip, _ in sorted_active[:8]] or ["No traffic"]
-
-    # Use normalized values in the Top Active IPs chart so it does not keep
-    # visually climbing forever. The snapshot still shows the actual count.
-    top_values = [round(count / WINDOW_SECONDS, 2) for _, count in sorted_active[:8]] or [0]
-
-    with state_lock:
-        blocked_list = list(blocked_ips.keys())
-
-    return {
+    live_snapshot = {
         "status": status,
         "status_type": status_type,
         "confidence": confidence,
@@ -244,9 +292,10 @@ def build_snapshot():
         "unique_ips": unique_ips,
         "top_ip": top_ip,
         "top_ip_count": top_count,
-        "suspicious_ips": suspicious[:5],
-        "top_ips_labels": top_labels,
-        "top_ips_values": top_values,
+        "suspicious_ips": [(ip, count) for ip, count in sorted_active if count > 0][:5],
+        "top_ips_labels": [ip for ip, _ in sorted_active[:8]] or ["No traffic"],
+        # Keep the chart stable by normalizing to the window length
+        "top_ips_values": [round(count / WINDOW_SECONDS, 2) for _, count in sorted_active[:8]] or [0],
         "recent_requests": list(recent_requests),
         "alerts": list(alerts),
         "attack_logs": list(attack_logs),
@@ -257,6 +306,34 @@ def build_snapshot():
         "window_seconds": WINDOW_SECONDS,
         "block_seconds": BLOCK_SECONDS,
     }
+
+    # If there is no live traffic, show the last saved dashboard snapshot
+    if total_requests == 0 and isinstance(persisted_snapshot, dict) and persisted_snapshot:
+        snapshot = copy.deepcopy(persisted_snapshot)
+        snapshot["recent_requests"] = list(recent_requests)
+        snapshot["alerts"] = list(alerts)
+        snapshot["attack_logs"] = list(attack_logs)
+        snapshot["blocked_ips"] = blocked_list
+        snapshot["rate_history"] = list(rate_history)
+        snapshot["time_labels"] = list(time_labels)
+        snapshot["window_seconds"] = WINDOW_SECONDS
+        snapshot["block_seconds"] = BLOCK_SECONDS
+        snapshot["top_ips_labels"] = snapshot.get("top_ips_labels", ["No traffic"])
+        snapshot["top_ips_values"] = snapshot.get("top_ips_values", [0])
+        snapshot["total_requests"] = 0
+        snapshot["unique_ips"] = 0
+        snapshot["top_ip_count"] = 0
+        snapshot["status"] = "Normal Traffic"
+        snapshot["status_type"] = "normal"
+        snapshot["prediction"] = 0
+        return snapshot
+
+    # Persist the current live snapshot for restart recovery
+    if total_requests > 0 or not persisted_snapshot:
+        persisted_snapshot = copy.deepcopy(live_snapshot)
+        save_last_snapshot(live_snapshot)
+
+    return live_snapshot
 
 
 # ============================================================
@@ -290,14 +367,14 @@ def track_request():
 
     if current_count > 15 and ip not in active_alerts:
         active_alerts.add(ip)
-        alerts.appendleft(
-            {
-                "time": time.strftime("%H:%M:%S"),
-                "ip": ip,
-                "message": f"High traffic from {ip}",
-                "count": current_count,
-            }
-        )
+        alert_entry = {
+            "time": time.strftime("%H:%M:%S"),
+            "ip": ip,
+            "message": f"High traffic from {ip}",
+            "count": current_count,
+        }
+        alerts.appendleft(alert_entry)
+        save_alert(alert_entry)
 
     if current_count <= 15 and ip in active_alerts:
         active_alerts.remove(ip)
@@ -314,6 +391,7 @@ def log_response(response):
             else "clean"
         )
         recent_requests.appendleft(entry)
+        save_recent_request(entry)
     return response
 
 
