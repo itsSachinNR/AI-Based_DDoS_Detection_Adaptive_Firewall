@@ -392,8 +392,8 @@ def load_last_snapshot() -> Optional[Dict[str, Any]]:
 def seed_demo_baseline(hours: int = 6, points_per_hour: int = 12) -> bool:
     """
     Demo-only fallback.
-    Adds a small stored traffic baseline so the dashboard is not empty
-    when the local network is quiet.
+    Adds stored traffic, requests, and a sample log so the dashboard is not
+    empty when the local network is quiet.
     """
     if traffic_history_count() > 0:
         return False
@@ -405,6 +405,7 @@ def seed_demo_baseline(hours: int = 6, points_per_hour: int = 12) -> bool:
     start_ts = now - (total_points * step)
 
     with get_connection() as conn:
+        # Traffic history
         for i in range(total_points):
             ts = start_ts + (i * step)
 
@@ -424,6 +425,79 @@ def seed_demo_baseline(hours: int = 6, points_per_hour: int = 12) -> bool:
                 (label, rate, "demo", ts),
             )
 
+        # Recent request examples
+        demo_requests = [
+            {"time": "09:10:02", "ip": "192.168.1.24", "method": "GET", "path": "/", "status": 200, "flag": "clean"},
+            {"time": "09:10:08", "ip": "192.168.1.31", "method": "GET", "path": "/dashboard", "status": 200, "flag": "clean"},
+            {"time": "09:10:15", "ip": "192.168.1.24", "method": "POST", "path": "/api/metrics", "status": 200, "flag": "clean"},
+            {"time": "09:10:22", "ip": "192.168.1.51", "method": "GET", "path": "/", "status": 200, "flag": "clean"},
+            {"time": "09:10:31", "ip": "192.168.1.24", "method": "GET", "path": "/dashboard", "status": 200, "flag": "clean"},
+        ]
+        for row in demo_requests:
+            conn.execute(
+                """
+                INSERT INTO recent_requests (time, ip, method, path, status, flag, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (row["time"], row["ip"], row["method"], row["path"], str(row["status"]), row["flag"], now),
+            )
+
+        # Alerts
+        demo_alerts = [
+            {"time": "09:09:58", "ip": "192.168.1.24", "message": "High traffic from 192.168.1.24", "count": 16},
+            {"time": "09:10:20", "ip": "192.168.1.51", "message": "High traffic from 192.168.1.51", "count": 18},
+        ]
+        for row in demo_alerts:
+            conn.execute(
+                """
+                INSERT INTO alerts (time, ip, message, count, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (row["time"], row["ip"], row["message"], row["count"], now),
+            )
+
+        # A sample historical attack log so the panel is not empty
+        demo_attack = {
+            "time": "09:10:40",
+            "ip": "192.168.1.99",
+            "confidence": 78.4,
+            "packet_rate": 41.2,
+            "action": "Detected",
+            "reasons": [
+                "Traffic concentrated on very few IPs",
+                "Low source-IP diversity",
+                "Extremely fast packet arrivals",
+            ],
+            "rf_attack_probability": 64.2,
+            "anomaly_attack_probability": 59.7,
+            "model_name": "Hybrid RF + IsolationForest",
+        }
+        conn.execute(
+            """
+            INSERT INTO attack_logs
+            (time, ip, confidence, packet_rate, action, reasons,
+             rf_attack_probability, anomaly_attack_probability, model_name, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                demo_attack["time"],
+                demo_attack["ip"],
+                demo_attack["confidence"],
+                demo_attack["packet_rate"],
+                demo_attack["action"],
+                json.dumps(demo_attack["reasons"], ensure_ascii=False),
+                demo_attack["rf_attack_probability"],
+                demo_attack["anomaly_attack_probability"],
+                demo_attack["model_name"],
+                now,
+            ),
+        )
+
+        _trim_table(conn, "recent_requests", "id", LIMIT_RECENT_REQUESTS)
+        _trim_table(conn, "alerts", "id", LIMIT_ALERTS)
+        _trim_table(conn, "attack_logs", "id", LIMIT_ATTACK_LOGS)
+        _trim_table(conn, "traffic_history", "id", LIMIT_TRAFFIC_HISTORY)
+
     demo_snapshot = {
         "status": "Normal Traffic",
         "status_type": "normal",
@@ -440,13 +514,9 @@ def seed_demo_baseline(hours: int = 6, points_per_hour: int = 12) -> bool:
         "suspicious_ips": [("192.168.1.24", 12), ("192.168.1.31", 8), ("192.168.1.51", 5)],
         "top_ips_labels": ["192.168.1.24", "192.168.1.31", "192.168.1.51"],
         "top_ips_values": [12, 8, 5],
-        "recent_requests": [
-            {"time": "09:10:02", "ip": "192.168.1.24", "method": "GET", "path": "/", "status": 200, "flag": "clean"},
-            {"time": "09:10:08", "ip": "192.168.1.31", "method": "GET", "path": "/dashboard", "status": 200, "flag": "clean"},
-            {"time": "09:10:15", "ip": "192.168.1.24", "method": "POST", "path": "/api/metrics", "status": 200, "flag": "clean"},
-        ],
-        "alerts": [],
-        "attack_logs": [],
+        "recent_requests": demo_requests,
+        "alerts": demo_alerts,
+        "attack_logs": [demo_attack],
         "blocked_ips": [],
         "timestamp": time.strftime("%H:%M:%S"),
         "rate_history": [18, 21, 19, 24, 22, 26, 25, 29, 24, 32, 28, 35, 30, 38, 34, 41, 37, 44, 40, 46],
