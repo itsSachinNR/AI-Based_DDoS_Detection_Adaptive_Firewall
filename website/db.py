@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import math
+import random
 import sqlite3
 import time
 from pathlib import Path
@@ -8,7 +10,6 @@ from typing import Any, Dict, List, Optional
 
 DB_PATH = Path(__file__).resolve().with_name("ddos.db")
 
-# Keep the DB from growing too much while still preserving history for the demo
 LIMIT_RECENT_REQUESTS = 300
 LIMIT_ALERTS = 120
 LIMIT_ATTACK_LOGS = 120
@@ -209,10 +210,10 @@ def save_traffic_point(timestamp: str, rate: float, label: str) -> None:
     with get_connection() as conn:
         conn.execute(
             """
-            INSERT INTO traffic_history (timestamp, rate, label)
-            VALUES (?, ?, ?)
+            INSERT INTO traffic_history (timestamp, rate, label, created_at)
+            VALUES (?, ?, ?, ?)
             """,
-            (timestamp, float(rate), label),
+            (timestamp, float(rate), label, time.time()),
         )
         _trim_table(conn, "traffic_history", "id", LIMIT_TRAFFIC_HISTORY)
 
@@ -243,6 +244,12 @@ def save_last_snapshot(snapshot: Dict[str, Any]) -> None:
 # ============================================================
 # LOAD FUNCTIONS
 # ============================================================
+def traffic_history_count() -> int:
+    with get_connection() as conn:
+        row = conn.execute("SELECT COUNT(*) AS c FROM traffic_history").fetchone()
+        return int(row["c"] if row else 0)
+
+
 def load_attack_logs(limit: int = 20) -> List[Dict[str, Any]]:
     with get_connection() as conn:
         rows = conn.execute(
@@ -328,16 +335,18 @@ def load_recent_requests(limit: int = 60) -> List[Dict[str, Any]]:
     ]
 
 
-def load_traffic_history(limit: int = 20) -> List[Dict[str, Any]]:
+def load_traffic_history(hours: int = 24) -> List[Dict[str, Any]]:
+    cutoff = time.time() - (hours * 3600)
+
     with get_connection() as conn:
         rows = conn.execute(
             """
             SELECT timestamp, rate, label
             FROM traffic_history
-            ORDER BY id ASC
-            LIMIT ?
+            WHERE created_at >= ?
+            ORDER BY created_at ASC
             """,
-            (limit,),
+            (cutoff,),
         ).fetchall()
 
     return [
@@ -375,3 +384,76 @@ def load_last_snapshot() -> Optional[Dict[str, Any]]:
     if isinstance(value, dict):
         return value
     return None
+
+
+# ============================================================
+# DEMO SEED
+# ============================================================
+def seed_demo_baseline(hours: int = 6, points_per_hour: int = 12) -> bool:
+    """
+    Demo-only fallback.
+    Adds a small stored traffic baseline so the dashboard is not empty
+    when the local network is quiet.
+    """
+    if traffic_history_count() > 0:
+        return False
+
+    rng = random.Random(42)
+    now = time.time()
+    total_points = hours * points_per_hour
+    step = 3600 / points_per_hour
+    start_ts = now - (total_points * step)
+
+    with get_connection() as conn:
+        for i in range(total_points):
+            ts = start_ts + (i * step)
+
+            base = 18 + (8 * math.sin(i / 4.5)) + rng.uniform(-2.0, 2.0)
+            spike = 0
+            if i in {total_points // 3, (2 * total_points) // 3}:
+                spike = 22 + rng.uniform(8, 15)
+
+            rate = max(1.0, round(base + spike, 2))
+            label = time.strftime("%H:%M:%S", time.localtime(ts))
+
+            conn.execute(
+                """
+                INSERT INTO traffic_history (timestamp, rate, label, created_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (label, rate, "demo", ts),
+            )
+
+    demo_snapshot = {
+        "status": "Normal Traffic",
+        "status_type": "normal",
+        "confidence": 72.0,
+        "prediction": 0,
+        "model_name": "Hybrid ML",
+        "reasons": ["Stored demo baseline"],
+        "rf_attack_probability": 18.0,
+        "anomaly_attack_probability": 24.0,
+        "total_requests": 38,
+        "unique_ips": 6,
+        "top_ip": "192.168.1.24",
+        "top_ip_count": 12,
+        "suspicious_ips": [("192.168.1.24", 12), ("192.168.1.31", 8), ("192.168.1.51", 5)],
+        "top_ips_labels": ["192.168.1.24", "192.168.1.31", "192.168.1.51"],
+        "top_ips_values": [12, 8, 5],
+        "recent_requests": [
+            {"time": "09:10:02", "ip": "192.168.1.24", "method": "GET", "path": "/", "status": 200, "flag": "clean"},
+            {"time": "09:10:08", "ip": "192.168.1.31", "method": "GET", "path": "/dashboard", "status": 200, "flag": "clean"},
+            {"time": "09:10:15", "ip": "192.168.1.24", "method": "POST", "path": "/api/metrics", "status": 200, "flag": "clean"},
+        ],
+        "alerts": [],
+        "attack_logs": [],
+        "blocked_ips": [],
+        "timestamp": time.strftime("%H:%M:%S"),
+        "rate_history": [18, 21, 19, 24, 22, 26, 25, 29, 24, 32, 28, 35, 30, 38, 34, 41, 37, 44, 40, 46],
+        "time_labels": [f"T{i}" for i in range(20)],
+        "window_seconds": 10,
+        "block_seconds": 30,
+    }
+
+    save_last_snapshot(demo_snapshot)
+    return True
