@@ -42,20 +42,20 @@ app = Flask(__name__, template_folder="templates", static_folder="static")
 # CONFIG
 # ============================================================
 WINDOW_SECONDS = 10
-ATTACK_THRESHOLD = 35
+ATTACK_THRESHOLD = 20
 BLOCK_SECONDS = 30
-BLOCK_CONFIDENCE_THRESHOLD = 80.0
+BLOCK_CONFIDENCE_THRESHOLD = 65.0
 
 # ============================================================
 # LIVE STATE
 # ============================================================
-rate_history = deque(maxlen=20)
-time_labels = deque(maxlen=20)
+rate_history = deque(maxlen=240)
+time_labels = deque(maxlen=240)
 
 ip_windows = defaultdict(deque)   # ip -> deque[timestamps]
 recent_requests = deque(maxlen=60)
-alerts = deque(maxlen=20)
-attack_logs = deque(maxlen=20)
+alerts = deque(maxlen=60)
+attack_logs = deque(maxlen=60)
 
 active_alerts = set()
 blocked_ips = {}                  # ip -> expiry timestamp
@@ -164,11 +164,11 @@ def bootstrap_state():
     seed_demo_baseline(hours=6, points_per_hour=12)
 
     recent_requests.extend(load_recent_requests(limit=60))
-    alerts.extend(load_alerts(limit=20))
-    attack_logs.extend(load_attack_logs(limit=20))
+    alerts.extend(load_alerts(limit=60))
+    attack_logs.extend(load_attack_logs(limit=60))
 
     history = load_traffic_history(hours=24)
-    for item in history[-20:]:
+    for item in history[-240:]:
         rate_history.append(item["rate"])
         time_labels.append(item["label"])
 
@@ -210,7 +210,6 @@ def build_snapshot():
     with state_lock:
         purge_expired_block_records()
 
-        # Clean every IP bucket based on the current time
         for ip in list(ip_windows.keys()):
             cleanup_old_hits(ip, now)
 
@@ -222,10 +221,8 @@ def build_snapshot():
     top_ip, top_count = (sorted_active[0] if sorted_active else ("-", 0))
     total_requests = sum(active.values())
 
-    # Real sliding-window rate
     packet_rate = total_requests / WINDOW_SECONDS if total_requests else 0
 
-    # Web traffic is application-layer telemetry; fill what we can.
     unique_ips = len(active)
     avg_packets_per_ip = total_requests / unique_ips if unique_ips else 0
     ip_concentration = top_count / total_requests if total_requests else 0
@@ -291,7 +288,7 @@ def build_snapshot():
         "top_ip_count": top_count,
         "suspicious_ips": [(ip, count) for ip, count in sorted_active if count > 0][:5],
         "top_ips_labels": [ip for ip, _ in sorted_active[:8]] or ["No traffic"],
-        "top_ips_values": [round(count / WINDOW_SECONDS, 2) for _, count in sorted_active[:8]] or [0],
+        "top_ips_values": [count for _, count in sorted_active[:8]] or [0],
         "recent_requests": list(recent_requests),
         "alerts": list(alerts),
         "attack_logs": list(attack_logs),
@@ -316,15 +313,11 @@ def build_snapshot():
         snapshot["block_seconds"] = BLOCK_SECONDS
         snapshot["top_ips_labels"] = snapshot.get("top_ips_labels", ["No traffic"])
         snapshot["top_ips_values"] = snapshot.get("top_ips_values", [0])
-        snapshot["total_requests"] = 0
-        snapshot["unique_ips"] = 0
-        snapshot["top_ip_count"] = 0
-        snapshot["status"] = "Normal Traffic"
-        snapshot["status_type"] = "normal"
-        snapshot["prediction"] = 0
+        snapshot["total_requests"] = snapshot.get("total_requests", 0)
+        snapshot["unique_ips"] = snapshot.get("unique_ips", 0)
+        snapshot["top_ip_count"] = snapshot.get("top_ip_count", 0)
         return snapshot
 
-    # Persist the current live snapshot for restart recovery
     if total_requests > 0 or not persisted_snapshot:
         persisted_snapshot = copy.deepcopy(live_snapshot)
         save_last_snapshot(live_snapshot)
