@@ -33,6 +33,7 @@ from db import (
     save_recent_request,
     save_traffic_point,
     delete_blocked_ip,
+    seed_demo_baseline,
 )
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
@@ -159,24 +160,20 @@ def bootstrap_state():
     """
     global persisted_snapshot
 
+    # Seed only when the DB is empty so the dashboard doesn't open blank
+    seed_demo_baseline(hours=6, points_per_hour=12)
+
     recent_requests.extend(load_recent_requests(limit=60))
     alerts.extend(load_alerts(limit=20))
     attack_logs.extend(load_attack_logs(limit=20))
 
-    for item in load_traffic_history(limit=20):
+    history = load_traffic_history(hours=24)
+    for item in history[-20:]:
         rate_history.append(item["rate"])
         time_labels.append(item["label"])
 
     persisted_snapshot = load_last_snapshot() or {}
 
-    # Fallback if traffic history table is empty but snapshot has series
-    if not rate_history and isinstance(persisted_snapshot, dict):
-        for rate in persisted_snapshot.get("rate_history", []):
-            rate_history.append(rate)
-        for label in persisted_snapshot.get("time_labels", []):
-            time_labels.append(label)
-
-    # Restore blocked IPs and re-schedule unblocking timers
     now = time.time()
     for item in load_blocked_ips():
         ip = item["ip"]
@@ -272,7 +269,7 @@ def build_snapshot():
     status = "DDoS Detected" if is_attack else "Normal Traffic"
     status_type = "danger" if is_attack else "normal"
 
-    # If we have live traffic, refresh the persisted snapshot and history
+    # Save a traffic point only when there is live traffic
     if total_requests > 0:
         label = time.strftime("%H:%M:%S")
         rate_history.append(packet_rate)
@@ -294,7 +291,6 @@ def build_snapshot():
         "top_ip_count": top_count,
         "suspicious_ips": [(ip, count) for ip, count in sorted_active if count > 0][:5],
         "top_ips_labels": [ip for ip, _ in sorted_active[:8]] or ["No traffic"],
-        # Keep the chart stable by normalizing to the window length
         "top_ips_values": [round(count / WINDOW_SECONDS, 2) for _, count in sorted_active[:8]] or [0],
         "recent_requests": list(recent_requests),
         "alerts": list(alerts),
