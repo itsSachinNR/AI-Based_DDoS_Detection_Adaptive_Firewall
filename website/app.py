@@ -33,16 +33,14 @@ BLOCK_CONFIDENCE_THRESHOLD = 80.0
 rate_history = deque(maxlen=20)
 time_labels = deque(maxlen=20)
 
-ip_windows = defaultdict(deque)  # ip -> deque[timestamps]
+ip_windows = defaultdict(deque)   # ip -> deque[timestamps]
 recent_requests = deque(maxlen=60)
 alerts = deque(maxlen=20)
 attack_logs = deque(maxlen=20)
 
 active_alerts = set()
-
-# ip -> expiry timestamp
-blocked_ips = {}
-block_timers = {}
+blocked_ips = {}                  # ip -> expiry timestamp
+block_timers = {}                 # ip -> Timer
 
 state_lock = Lock()
 
@@ -88,12 +86,6 @@ def cleanup_old_hits(ip, now):
         ip_windows.pop(ip, None)
 
 
-def cleanup_empty_ip_windows():
-    for ip in list(ip_windows.keys()):
-        if not ip_windows[ip]:
-            ip_windows.pop(ip, None)
-
-
 def purge_expired_block_records():
     now = time.time()
     expired = [ip for ip, expiry in blocked_ips.items() if now >= expiry]
@@ -133,18 +125,25 @@ def should_block_ip(ip: str, confidence: float) -> bool:
 # SNAPSHOT BUILDER
 # ============================================================
 def build_snapshot():
+    now = time.time()
+
     with state_lock:
         purge_expired_block_records()
-        cleanup_empty_ip_windows()
+
+        # Clean every IP bucket based on the current time, then remove empties
+        for ip in list(ip_windows.keys()):
+            cleanup_old_hits(ip, now)
 
         active = {ip: len(q) for ip, q in ip_windows.items() if q}
         sorted_active = sorted(active.items(), key=lambda x: x[1], reverse=True)
 
     top_ip, top_count = (sorted_active[0] if sorted_active else ("-", 0))
     total_requests = sum(active.values())
+
+    # Real sliding-window rate
     packet_rate = total_requests / WINDOW_SECONDS if total_requests else 0
 
-    # Keep chart history
+    # Keep chart history stable over time
     rate_history.append(packet_rate)
     time_labels.append(time.strftime("%H:%M:%S"))
 
@@ -155,8 +154,7 @@ def build_snapshot():
     source_ip_entropy = shannon_entropy_from_counts(active)
     packet_count = total_requests
 
-    # These fields are aligned to the richer ML schema, even if some are not
-    # available from the Flask app layer directly.
+    # Aligned to the richer ML schema
     features = {
         "packet_rate": packet_rate,
         "syn_ratio": 0.0,
@@ -216,7 +214,6 @@ def build_snapshot():
 
             if not already_blocked:
                 try:
-                    # We keep the real firewall block and then auto-unblock it later
                     block_ip(top_ip, duration=BLOCK_SECONDS, auto_unblock=False)
                     with state_lock:
                         blocked_ips[top_ip] = time.time() + BLOCK_SECONDS
