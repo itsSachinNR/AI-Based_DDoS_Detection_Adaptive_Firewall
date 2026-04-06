@@ -42,7 +42,7 @@ app = Flask(__name__, template_folder="templates", static_folder="static")
 # CONFIG
 # ============================================================
 WINDOW_SECONDS = 10
-ATTACK_THRESHOLD = 50
+ATTACK_THRESHOLD = 35
 BLOCK_SECONDS = 30
 BLOCK_CONFIDENCE_THRESHOLD = 80.0
 
