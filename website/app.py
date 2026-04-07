@@ -367,10 +367,10 @@ def build_snapshot():
 
     if sorted_active:
         top_ips_labels = [ip for ip, _ in sorted_active[:5]]
-        top_ips_values = [count for _, count in sorted_active[:5]]
+        top_ips_values = [round(count / top_count, 3) if top_count else 0 for _, count in sorted_active[:5]]
     else:
         top_ips_labels = ["192.168.1.24", "192.168.1.31", "192.168.1.51"]
-        top_ips_values = [12, 8, 5]
+        top_ips_values = [1.0, 0.74, 0.51]
 
     snapshot = {
         "status": "DDoS Detected" if is_attack else "Normal Traffic",
