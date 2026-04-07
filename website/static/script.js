@@ -234,6 +234,8 @@
         },
         scales: {
           x: {
+            min: 0,
+            max: 1,
             grid: { color: "rgba(148,163,184,0.10)" },
             ticks: { color: "#94a3b8" }
           },
@@ -285,9 +287,14 @@
             ticks: { color: "#94a3b8" }
           },
           y: {
+            min: 0,
+            max: 1,
             beginAtZero: true,
             grid: { color: "rgba(148,163,184,0.10)" },
-            ticks: { color: "#94a3b8" }
+            ticks: {
+              color: "#94a3b8",
+              callback: (v) => v
+            }
           }
         }
       },
@@ -322,7 +329,12 @@
 
   async function refresh() {
     try {
-      const res = await fetch("/api/metrics");
+      const res = await fetch("/api/metrics", {
+        cache: "no-store",
+        headers: {
+          "X-Dashboard-Internal": "1"
+        }
+      });
       const data = await res.json();
 
       renderStatus(data);
