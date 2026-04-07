@@ -6,7 +6,6 @@
   <title>Security Command Dashboard</title>
 
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 
 <body class="dashboard-page">
@@ -75,10 +74,7 @@
 
       <div class="status-progress">
         <div class="progress-track">
-          <div
-            class="progress-fill {{ initial.status_type }}"
-            id="confidenceBar"
-          ></div>
+          <div class="progress-fill {{ initial.status_type }}" id="confidenceBar"></div>
         </div>
         <div class="progress-labels">
           <span>0%</span>
@@ -122,7 +118,7 @@
     </section>
 
     <section class="dashboard-grid">
-      <div class="panel glass chart-card chart-card-wide">
+      <div class="panel glass">
         <div class="panel-head">
           <div>
             <h2>Top Active IPs</h2>
@@ -130,8 +126,23 @@
           </div>
           <span class="tag warning">Ranked</span>
         </div>
-        <div class="chart-wrap">
-          <canvas id="ipChart"></canvas>
+        <div id="topIpsList" class="ip-list">
+          {% if initial.top_ips_labels and initial.top_ips_labels|length > 0 %}
+            {% for ip in initial.top_ips_labels %}
+              {% set count = initial.top_ips_values[loop.index0] if initial.top_ips_values and initial.top_ips_values|length > loop.index0 else 0 %}
+              <div class="ip-row">
+                <div class="ip-row-main">
+                  <div class="ip-row-ip">{{ ip }}</div>
+                  <div class="ip-row-sub">Requests: {{ count }}</div>
+                </div>
+                <div class="ip-row-bar">
+                  <div class="ip-row-fill" style="width: {{ (count * 100) if count <= 1 else 100 }}%;"></div>
+                </div>
+              </div>
+            {% endfor %}
+          {% else %}
+            <div class="empty">No traffic yet.</div>
+          {% endif %}
         </div>
       </div>
 
@@ -165,19 +176,6 @@
             <div class="snapshot-bar">
               <div id="topIpBar" class="snapshot-bar-fill"></div>
             </div>
-          </div>
-        </div>
-
-        <div class="panel glass chart-card">
-          <div class="panel-head">
-            <div>
-              <h2>Traffic Rate</h2>
-              <span>Packet/request rate over time</span>
-            </div>
-            <span class="tag success">Auto refresh</span>
-          </div>
-          <div class="chart-wrap">
-            <canvas id="trafficChart"></canvas>
           </div>
         </div>
 
