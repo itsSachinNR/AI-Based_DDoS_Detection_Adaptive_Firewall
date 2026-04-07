@@ -1,17 +1,11 @@
 (() => {
   const initial = window.DDOS_INITIAL || {};
 
-  let ipChart = null;
-  let trafficChart = null;
-  const threshold = 50;
-
   function currentTheme(status) {
     const isAttack = status === "DDoS Detected";
     return {
       statusClass: isAttack ? "danger" : "normal",
-      icon: isAttack ? "⚠" : "🛡",
-      line: isAttack ? "#ef4444" : "#22c55e",
-      fill: isAttack ? "rgba(239,68,68,0.18)" : "rgba(34,197,94,0.18)"
+      icon: isAttack ? "⚠" : "🛡"
     };
   }
 
@@ -113,6 +107,32 @@
     `).join("");
   }
 
+  function renderTopIps(data) {
+    const list = document.getElementById("topIpsList");
+    if (!list) return;
+
+    const labels = safeArray(data.top_ips_labels, ["Demo traffic"]);
+    const values = safeArray(data.top_ips_values, [1]);
+
+    const maxValue = Math.max(...values, 1);
+
+    list.innerHTML = labels.map((ip, idx) => {
+      const value = Number(values[idx] || 0);
+      const percent = clampPercent((value / maxValue) * 100);
+      return `
+        <div class="ip-row">
+          <div class="ip-row-main">
+            <div class="ip-row-ip">${ip}</div>
+            <div class="ip-row-sub">Requests: ${value}</div>
+          </div>
+          <div class="ip-row-bar">
+            <div class="ip-row-fill" style="width:${percent}%"></div>
+          </div>
+        </div>
+      `;
+    }).join("");
+  }
+
   function renderStatus(data) {
     const theme = currentTheme(data.status);
 
@@ -175,156 +195,7 @@
     renderAlerts(data.alerts || []);
     renderAttackLogs(data.attack_logs || []);
     renderRequests(data.recent_requests || []);
-  }
-
-  function createThresholdPlugin(thresholdValue) {
-    return {
-      id: "thresholdLine",
-      afterDraw(chart) {
-        const { ctx, chartArea, scales } = chart;
-        if (!chartArea || !scales?.y) return;
-
-        const y = scales.y.getPixelForValue(thresholdValue);
-
-        ctx.save();
-        ctx.strokeStyle = "rgba(250,204,21,0.95)";
-        ctx.lineWidth = 2;
-        ctx.setLineDash([6, 6]);
-        ctx.beginPath();
-        ctx.moveTo(chartArea.left, y);
-        ctx.lineTo(chartArea.right, y);
-        ctx.stroke();
-        ctx.setLineDash([]);
-
-        ctx.fillStyle = "rgba(250,204,21,0.95)";
-        ctx.font = "12px Arial";
-        ctx.fillText("Threshold", chartArea.left + 8, y - 8);
-        ctx.restore();
-      }
-    };
-  }
-
-  function createIpChart(data) {
-    const canvas = document.getElementById("ipChart");
-    if (!canvas) return;
-
-    const ctx = canvas.getContext("2d");
-    const labels = safeArray(data.top_ips_labels, ["Demo traffic"]);
-    const values = safeArray(data.top_ips_values, [1]);
-
-    ipChart = new Chart(ctx, {
-      type: "bar",
-      data: {
-        labels,
-        datasets: [{
-          data: values,
-          borderWidth: 0,
-          borderRadius: 12,
-          barThickness: 18,
-          backgroundColor: "rgba(34,211,238,0.9)"
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        indexAxis: "y",
-        animation: { duration: 250 },
-        plugins: {
-          legend: { display: false }
-        },
-        scales: {
-          x: {
-            min: 0,
-            max: 1,
-            grid: { color: "rgba(148,163,184,0.10)" },
-            ticks: { color: "#94a3b8" }
-          },
-          y: {
-            grid: { display: false },
-            ticks: { color: "#cbd5e1" }
-          }
-        }
-      },
-      plugins: [createThresholdPlugin(threshold)]
-    });
-  }
-
-  function createTrafficChart(data) {
-    const canvas = document.getElementById("trafficChart");
-    if (!canvas) return;
-
-    const ctx = canvas.getContext("2d");
-    const theme = currentTheme(data.status);
-
-    const labels = safeArray(data.time_labels, ["T0"]);
-    const values = safeArray(data.rate_history, [0]);
-
-    trafficChart = new Chart(ctx, {
-      type: "line",
-      data: {
-        labels,
-        datasets: [{
-          label: "Packet Rate",
-          data: values,
-          borderColor: theme.line,
-          backgroundColor: theme.fill,
-          borderWidth: 3,
-          tension: 0.35,
-          fill: true,
-          pointRadius: 0
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        animation: { duration: 250 },
-        plugins: {
-          legend: { display: false }
-        },
-        scales: {
-          x: {
-            grid: { display: false },
-            ticks: { color: "#94a3b8" }
-          },
-          y: {
-            min: 0,
-            max: 1,
-            beginAtZero: true,
-            grid: { color: "rgba(148,163,184,0.10)" },
-            ticks: {
-              color: "#94a3b8",
-              callback: (v) => v
-            }
-          }
-        }
-      },
-      plugins: [createThresholdPlugin(threshold)]
-    });
-  }
-
-  function updateIpChart(data) {
-    if (!ipChart) return;
-
-    const labels = safeArray(data.top_ips_labels, ["Demo traffic"]);
-    const values = safeArray(data.top_ips_values, [1]);
-
-    ipChart.data.labels = labels;
-    ipChart.data.datasets[0].data = values;
-    ipChart.update();
-  }
-
-  function updateTrafficChart(data) {
-    if (!trafficChart) return;
-
-    const theme = currentTheme(data.status);
-    const labels = safeArray(data.time_labels, ["T0"]);
-    const values = safeArray(data.rate_history, [0]);
-
-    trafficChart.data.labels = labels;
-    trafficChart.data.datasets[0].data = values;
-    trafficChart.data.datasets[0].borderColor = theme.line;
-    trafficChart.data.datasets[0].backgroundColor = theme.fill;
-    trafficChart.update();
+    renderTopIps(data);
   }
 
   async function refresh() {
@@ -338,8 +209,6 @@
       const data = await res.json();
 
       renderStatus(data);
-      updateIpChart(data);
-      updateTrafficChart(data);
     } catch (err) {
       console.error("Refresh failed:", err);
     }
@@ -347,8 +216,6 @@
 
   function init() {
     renderStatus(initial);
-    createIpChart(initial);
-    createTrafficChart(initial);
 
     const refreshBtn = document.getElementById("refreshBtn");
     const simulateBtn = document.getElementById("simulateBtn");
