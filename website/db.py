@@ -392,8 +392,8 @@ def load_last_snapshot() -> Optional[Dict[str, Any]]:
 def seed_demo_baseline(hours: int = 6, points_per_hour: int = 12) -> bool:
     """
     Demo-only fallback.
-    Adds stored traffic, requests, and a sample log so the dashboard is not
-    empty when the local network is quiet.
+    Adds stored traffic, requests, alerts, attack logs, and a sample blocked IP
+    so the dashboard is not empty when the local network is quiet.
     """
     if traffic_history_count() > 0:
         return False
@@ -432,6 +432,9 @@ def seed_demo_baseline(hours: int = 6, points_per_hour: int = 12) -> bool:
             {"time": "09:10:15", "ip": "192.168.1.24", "method": "POST", "path": "/api/metrics", "status": 200, "flag": "clean"},
             {"time": "09:10:22", "ip": "192.168.1.51", "method": "GET", "path": "/", "status": 200, "flag": "clean"},
             {"time": "09:10:31", "ip": "192.168.1.24", "method": "GET", "path": "/dashboard", "status": 200, "flag": "clean"},
+            {"time": "09:10:40", "ip": "192.168.1.88", "method": "GET", "path": "/api/refresh", "status": 200, "flag": "clean"},
+            {"time": "09:10:49", "ip": "192.168.1.24", "method": "GET", "path": "/", "status": 200, "flag": "clean"},
+            {"time": "09:10:56", "ip": "192.168.1.99", "method": "GET", "path": "/dashboard", "status": 200, "flag": "clean"},
         ]
         for row in demo_requests:
             conn.execute(
@@ -446,6 +449,7 @@ def seed_demo_baseline(hours: int = 6, points_per_hour: int = 12) -> bool:
         demo_alerts = [
             {"time": "09:09:58", "ip": "192.168.1.24", "message": "High traffic from 192.168.1.24", "count": 16},
             {"time": "09:10:20", "ip": "192.168.1.51", "message": "High traffic from 192.168.1.51", "count": 18},
+            {"time": "09:10:43", "ip": "192.168.1.99", "message": "High traffic from 192.168.1.99", "count": 21},
         ]
         for row in demo_alerts:
             conn.execute(
@@ -456,41 +460,70 @@ def seed_demo_baseline(hours: int = 6, points_per_hour: int = 12) -> bool:
                 (row["time"], row["ip"], row["message"], row["count"], now),
             )
 
-        # A sample historical attack log so the panel is not empty
-        demo_attack = {
-            "time": "09:10:40",
-            "ip": "192.168.1.99",
-            "confidence": 78.4,
-            "packet_rate": 41.2,
-            "action": "Detected",
-            "reasons": [
-                "Traffic concentrated on very few IPs",
-                "Low source-IP diversity",
-                "Extremely fast packet arrivals",
-            ],
-            "rf_attack_probability": 64.2,
-            "anomaly_attack_probability": 59.7,
-            "model_name": "Hybrid RF + IsolationForest",
-        }
+        # Historical attack log entries
+        demo_attacks = [
+            {
+                "time": "09:10:40",
+                "ip": "192.168.1.99",
+                "confidence": 78.4,
+                "packet_rate": 41.2,
+                "action": "Detected",
+                "reasons": [
+                    "Traffic concentrated on very few IPs",
+                    "Low source-IP diversity",
+                    "Extremely fast packet arrivals",
+                ],
+                "rf_attack_probability": 64.2,
+                "anomaly_attack_probability": 59.7,
+                "model_name": "Hybrid RF + IsolationForest",
+            },
+            {
+                "time": "09:11:12",
+                "ip": "192.168.1.51",
+                "confidence": 82.1,
+                "packet_rate": 52.6,
+                "action": "Blocked",
+                "reasons": [
+                    "Very high packet rate",
+                    "Low destination-port diversity",
+                ],
+                "rf_attack_probability": 72.8,
+                "anomaly_attack_probability": 66.4,
+                "model_name": "Hybrid RF + IsolationForest",
+            },
+        ]
+        for item in demo_attacks:
+            conn.execute(
+                """
+                INSERT INTO attack_logs
+                (time, ip, confidence, packet_rate, action, reasons,
+                 rf_attack_probability, anomaly_attack_probability, model_name, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    item["time"],
+                    item["ip"],
+                    item["confidence"],
+                    item["packet_rate"],
+                    item["action"],
+                    json.dumps(item["reasons"], ensure_ascii=False),
+                    item["rf_attack_probability"],
+                    item["anomaly_attack_probability"],
+                    item["model_name"],
+                    now,
+                ),
+            )
+
+        # Sample blocked IP visible on the dashboard
         conn.execute(
             """
-            INSERT INTO attack_logs
-            (time, ip, confidence, packet_rate, action, reasons,
-             rf_attack_probability, anomaly_attack_probability, model_name, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO blocked_ips (ip, blocked_at, expires_at)
+            VALUES (?, ?, ?)
+            ON CONFLICT(ip) DO UPDATE SET
+                blocked_at=excluded.blocked_at,
+                expires_at=excluded.expires_at
             """,
-            (
-                demo_attack["time"],
-                demo_attack["ip"],
-                demo_attack["confidence"],
-                demo_attack["packet_rate"],
-                demo_attack["action"],
-                json.dumps(demo_attack["reasons"], ensure_ascii=False),
-                demo_attack["rf_attack_probability"],
-                demo_attack["anomaly_attack_probability"],
-                demo_attack["model_name"],
-                now,
-            ),
+            ("192.168.1.51", now, now + 3600),
         )
 
         _trim_table(conn, "recent_requests", "id", LIMIT_RECENT_REQUESTS)
@@ -516,11 +549,9 @@ def seed_demo_baseline(hours: int = 6, points_per_hour: int = 12) -> bool:
         "top_ips_values": [12, 8, 5],
         "recent_requests": demo_requests,
         "alerts": demo_alerts,
-        "attack_logs": [demo_attack],
-        "blocked_ips": [],
+        "attack_logs": demo_attacks,
+        "blocked_ips": ["192.168.1.51"],
         "timestamp": time.strftime("%H:%M:%S"),
-        "rate_history": [18, 21, 19, 24, 22, 26, 25, 29, 24, 32, 28, 35, 30, 38, 34, 41, 37, 44, 40, 46],
-        "time_labels": [f"T{i}" for i in range(20)],
         "window_seconds": 10,
         "block_seconds": 30,
     }
