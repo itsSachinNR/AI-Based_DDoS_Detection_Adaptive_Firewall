@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import copy
-import math
 import os
 import socket
 import sys
@@ -26,13 +25,11 @@ from db import (
     load_blocked_ips,
     load_last_snapshot,
     load_recent_requests,
-    load_traffic_history,
     save_alert,
     save_attack_log,
     save_blocked_ip,
     save_last_snapshot,
     save_recent_request,
-    save_traffic_point,
     delete_blocked_ip,
     seed_demo_baseline,
 )
@@ -46,16 +43,9 @@ WINDOW_SECONDS = 30
 BLOCK_SECONDS = 30
 BLOCK_CONFIDENCE_THRESHOLD = 50.0
 
-# Traffic graph: bounded, smooth, visual-only value between 0 and 1
-GRAPH_SAMPLE_INTERVAL = 1.0
-GRAPH_RATE_CAP = 50.0
-
 # ============================================================
 # LIVE STATE
 # ============================================================
-rate_history = deque(maxlen=240)
-time_labels = deque(maxlen=240)
-
 ip_windows = defaultdict(deque)
 recent_requests = deque(maxlen=60)
 alerts = deque(maxlen=60)
@@ -67,7 +57,6 @@ block_timers = {}
 
 state_lock = Lock()
 persisted_snapshot: Dict[str, Any] | None = None
-last_graph_sample_ts = 0.0
 
 
 # ============================================================
@@ -116,10 +105,6 @@ def client_ip():
 
 def is_local_or_invalid_ip(ip: str) -> bool:
     return ip in SELF_IPS or not ip or ip == "-"
-
-
-def clamp(value: float, low: float, high: float) -> float:
-    return max(low, min(high, value))
 
 
 def cleanup_old_hits(ip, now):
@@ -179,52 +164,6 @@ def should_block_ip(ip: str, confidence: float) -> bool:
     return not is_local_or_invalid_ip(ip) and confidence >= BLOCK_CONFIDENCE_THRESHOLD
 
 
-def normalize_rate(raw_rate: float) -> float:
-    """
-    Map rates into a clean 0..1 band so the chart looks stable and doesn't just
-    keep climbing forever.
-    """
-    if raw_rate <= 0:
-        return 0.0
-    if raw_rate <= 1.0:
-        return clamp(raw_rate, 0.0, 1.0)
-    return clamp(raw_rate / GRAPH_RATE_CAP, 0.0, 1.0)
-
-
-def update_graph_sample(packet_rate: float, now: float) -> None:
-    """
-    Create a smooth, bounded graph point.
-    Even with quiet traffic, the chart stays visually alive.
-    """
-    global last_graph_sample_ts
-
-    if now - last_graph_sample_ts < GRAPH_SAMPLE_INTERVAL:
-        return
-
-    live_component = normalize_rate(packet_rate)
-
-    # Gentle movement so the dashboard doesn't look frozen
-    wave_a = 0.18 * math.sin(now / 4.0)
-    wave_b = 0.08 * math.sin(now / 1.7)
-    visual_base = 0.42 + wave_a + wave_b
-
-    target = max(visual_base, live_component)
-
-    if rate_history:
-        sample = (rate_history[-1] * 0.78) + (target * 0.22)
-    else:
-        sample = target
-
-    sample = round(clamp(sample, 0.05, 1.0), 3)
-    label = time.strftime("%H:%M:%S")
-
-    rate_history.append(sample)
-    time_labels.append(label)
-    save_traffic_point(label, sample, label)
-
-    last_graph_sample_ts = now
-
-
 def bootstrap_state():
     """
     Load the last session from SQLite so the dashboard has content on startup.
@@ -237,11 +176,6 @@ def bootstrap_state():
     recent_requests.extend(load_recent_requests(limit=60))
     alerts.extend(load_alerts(limit=60))
     attack_logs.extend(load_attack_logs(limit=60))
-
-    history = load_traffic_history(hours=4)
-    for item in history[-240:]:
-        rate_history.append(normalize_rate(item["rate"]))
-        time_labels.append(item["label"])
 
     persisted_snapshot = load_last_snapshot() or {}
 
@@ -295,7 +229,6 @@ def build_snapshot():
     unique_ips = len(active)
 
     packet_rate = total_requests / WINDOW_SECONDS if total_requests else 0.0
-    update_graph_sample(packet_rate, now)
 
     # If the live window is empty, show the last saved state instead of a blank dashboard.
     if total_requests == 0 and isinstance(persisted_snapshot, dict) and persisted_snapshot:
@@ -304,8 +237,6 @@ def build_snapshot():
         snapshot["alerts"] = list(alerts)
         snapshot["attack_logs"] = list(attack_logs)
         snapshot["blocked_ips"] = blocked_list
-        snapshot["rate_history"] = list(rate_history)
-        snapshot["time_labels"] = list(time_labels)
         snapshot["window_seconds"] = WINDOW_SECONDS
         snapshot["block_seconds"] = BLOCK_SECONDS
         snapshot["top_ips_labels"] = snapshot.get("top_ips_labels", ["Demo traffic"])
@@ -319,12 +250,34 @@ def build_snapshot():
     avg_packets_per_ip = total_requests / unique_ips if unique_ips else 0.0
     ip_concentration = top_count / total_requests if total_requests else 0.0
 
+    # Full feature payload for your hybrid detector
     features = {
         "packet_rate": packet_rate,
+        "syn_ratio": 0.0,
+        "udp_ratio": 0.0,
         "unique_ips": unique_ips,
+        "tcp_ratio": 1.0 if total_requests else 0.0,
+        "icmp_ratio": 0.0,
+        "other_ratio": 0.0,
         "avg_packets_per_ip": avg_packets_per_ip,
         "ip_concentration": ip_concentration,
+        "source_ip_entropy": 0.0,
+        "port_entropy": 0.0,
+        "unique_dst_ports": 1 if total_requests else 0,
+        "top_ip_packets": top_count,
+        "top_dst_port_packets": total_requests,
+        "packet_size_mean": 0.0,
+        "packet_size_std": 0.0,
+        "packet_size_min": 0.0,
+        "packet_size_max": 0.0,
+        "avg_inter_arrival": 0.0,
+        "inter_arrival_std": 0.0,
+        "burstiness": 0.0,
+        "byte_rate": 0.0,
+        "avg_bytes_per_packet": 0.0,
         "packet_count": total_requests,
+        "total_bytes": 0.0,
+        "duration_seconds": WINDOW_SECONDS,
     }
 
     result = detect_ddos(features)
@@ -367,10 +320,10 @@ def build_snapshot():
 
     if sorted_active:
         top_ips_labels = [ip for ip, _ in sorted_active[:5]]
-        top_ips_values = [round(count / top_count, 3) if top_count else 0 for _, count in sorted_active[:5]]
+        top_ips_values = [count for _, count in sorted_active[:5]]
     else:
         top_ips_labels = ["192.168.1.24", "192.168.1.31", "192.168.1.51"]
-        top_ips_values = [1.0, 0.74, 0.51]
+        top_ips_values = [12, 8, 5]
 
     snapshot = {
         "status": "DDoS Detected" if is_attack else "Normal Traffic",
@@ -387,8 +340,6 @@ def build_snapshot():
         "attack_logs": list(attack_logs),
         "blocked_ips": list(blocked_ips.keys()),
         "timestamp": time.strftime("%H:%M:%S"),
-        "rate_history": list(rate_history),
-        "time_labels": list(time_labels),
         "model_name": result.get("model_name", "Hybrid ML"),
         "rf_attack_probability": result.get("rf_attack_probability", 0),
         "anomaly_attack_probability": result.get("anomaly_attack_probability", 0),
