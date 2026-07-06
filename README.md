@@ -47,6 +47,49 @@ If malicious activity is detected:
 
 ---
 
+# 📸 Project Results
+
+## 🏠 Home Page
+
+The landing page provides an overview of the AI-Based DDoS Detection & Adaptive Firewall System.
+
+![Home Page](screenshots/home.png)
+
+---
+
+## 📊 Live Monitoring Dashboard
+
+The dashboard visualizes live traffic, attack alerts, firewall actions, and system status in real time.
+
+![Dashboard](screenshots/dashboard.png)
+
+---
+
+## 🚨 DDoS Attack Detection
+
+The machine learning model analyzes network traffic and detects suspicious activity. When an attack is identified, the attacker IP, confidence score, and attack details are displayed in the terminal.
+
+![Attack Detection](screenshots/attack_detection.png)
+
+---
+
+## 🔥 Automatic IP Blocking
+
+Once an attack is confirmed, the adaptive firewall automatically blocks the attacker's IP using Linux `iptables`, preventing further malicious traffic.
+
+![IP Blocking](screenshots/ip_blocking.png)
+
+---
+
+## 🔓 Automatic IP Unblocking
+
+To support safe testing and demonstrations, blocked IP addresses are automatically removed from the firewall after the configured timeout period.
+
+![IP Unblocking](screenshots/ip_unblocking.png)
+
+
+---
+
 ## 🏗️ System Architecture
 ```
 Network / Web Traffic
